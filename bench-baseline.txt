@@ -1,0 +1,27 @@
+goos: darwin
+goarch: arm64
+pkg: community-detection/graph
+cpu: Apple M4
+BenchmarkLouvain10K-10           	      24	  50046896 ns/op	18622992 B/op	   48773 allocs/op
+BenchmarkLouvain10K-10           	      24	  50336365 ns/op	18622977 B/op	   48773 allocs/op
+BenchmarkLouvain10K-10           	      22	  50184839 ns/op	18688989 B/op	   48782 allocs/op
+BenchmarkLouvain10K-10           	      24	  51080899 ns/op	18622982 B/op	   48773 allocs/op
+BenchmarkLouvain10K-10           	      22	  50568483 ns/op	18622983 B/op	   48773 allocs/op
+BenchmarkLouvain10K_Allocs-10    	      22	  51277587 ns/op	18622988 B/op	   48773 allocs/op
+BenchmarkLouvain10K_Allocs-10    	      22	  51406591 ns/op	18622988 B/op	   48773 allocs/op
+BenchmarkLouvain10K_Allocs-10    	      22	  51409324 ns/op	18622993 B/op	   48773 allocs/op
+BenchmarkLouvain10K_Allocs-10    	      22	  52513072 ns/op	18622983 B/op	   48773 allocs/op
+BenchmarkLouvain10K_Allocs-10    	      22	  51172778 ns/op	18622978 B/op	   48773 allocs/op
+PASS
+ok  	community-detection/graph	13.300s
+goos: darwin
+goarch: arm64
+pkg: community-detection/graph
+cpu: Apple M4
+BenchmarkLeiden10K-10    	      21	  56207927 ns/op	21186944 B/op	   66552 allocs/op
+BenchmarkLeiden10K-10    	      21	  56004712 ns/op	21251146 B/op	   66561 allocs/op
+BenchmarkLeiden10K-10    	      21	  56127145 ns/op	21187099 B/op	   66552 allocs/op
+BenchmarkLeiden10K-10    	      20	  55820412 ns/op	21258482 B/op	   66562 allocs/op
+BenchmarkLeiden10K-10    	      20	  56579102 ns/op	21191493 B/op	   66552 allocs/op
+PASS
+ok  	community-detection/graph	6.852s
