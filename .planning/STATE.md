@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-01-PLAN.md — Football/Polbooks fixtures, NMI accuracy suite, Louvain 8 edge cases
-last_updated: "2026-03-29T11:44:51.811Z"
+status: verifying
+stopped_at: Completed 04-02-PLAN.md — sync.Pool, benchmarks, benchstat baseline
+last_updated: "2026-03-29T13:29:55.143Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 20
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 04 (performance-hardening-benchmark-fixtures) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
 Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total plans done)
@@ -56,6 +56,7 @@ Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total pla
 | Phase 02-interface-louvain-core P02 | 45min | 2 tasks | 3 files |
 | Phase 03 P01 | 4min | 2 tasks | 5 files |
 | Phase 04-performance-hardening-benchmark-fixtures P01 | 15min | 2 tasks | 6 files |
+| Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total pla
 - [Phase 03]: louvainState wrapper pattern for phase1 reuse: construct inline &louvainState{partition, commStr, rng}, copy back after call
 - [Phase 04-performance-hardening-benchmark-fixtures]: Seed=1 for TestLouvainKarateClubNMI (gives NMI=0.83 vs threshold 0.70; Seed=42 gives only 0.60)
 - [Phase 04-performance-hardening-benchmark-fixtures]: nmi() and uniqueCommunities() extracted to shared testhelpers_test.go for reuse across accuracy tests
+- [Phase 04-performance-hardening-benchmark-fixtures]: rand.New(src) in reset() ensures identical RNG sequence to original constructor; st.rng.Seed() causes shuffle divergence
+- [Phase 04-performance-hardening-benchmark-fixtures]: bestSuperPartition must be deep-copied under pool reuse; pointer sharing causes state.partition clear to silently destroy saved results
 
 ### Pending Todos
 
@@ -84,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T11:44:51.808Z
-Stopped at: Completed 04-01-PLAN.md — Football/Polbooks fixtures, NMI accuracy suite, Louvain 8 edge cases
+Last session: 2026-03-29T13:29:55.141Z
+Stopped at: Completed 04-02-PLAN.md — sync.Pool, benchmarks, benchstat baseline
 Resume file: None
