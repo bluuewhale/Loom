@@ -89,4 +89,4 @@
 4. 다음 마일스톤 Active 요구사항 갱신
 
 ---
-*Last updated: 2026-03-29 after initialization*
+*Last updated: 2026-03-29 after Phase 02 (Interface + Louvain Core) — CommunityDetector interface, LouvainOptions, LeidenOptions, CommunityResult, and full Louvain algorithm complete. Q=0.4156 on Karate Club. IFACE-01~06, LOUV-01~05 validated.*
