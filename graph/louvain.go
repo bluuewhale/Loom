@@ -1,5 +1,7 @@
 package graph
 
+import "slices"
+
 // Detect runs the Louvain community detection algorithm on graph g.
 // It returns ErrDirectedNotSupported for directed graphs.
 // For empty graphs, it returns an empty CommunityResult with no error.
@@ -161,11 +163,7 @@ func phase1(g *Graph, state *louvainState, resolution, m float64) int {
 	nodes := g.Nodes()
 	// Sort by NodeID before shuffling so the RNG seed is the sole source of
 	// traversal randomness (map iteration order is intentionally non-deterministic in Go).
-	for i := 1; i < len(nodes); i++ {
-		for j := i; j > 0 && nodes[j] < nodes[j-1]; j-- {
-			nodes[j], nodes[j-1] = nodes[j-1], nodes[j]
-		}
-	}
+	slices.Sort(nodes)
 	state.rng.Shuffle(len(nodes), func(i, j int) {
 		nodes[i], nodes[j] = nodes[j], nodes[i]
 	})
@@ -178,50 +176,63 @@ func phase1(g *Graph, state *louvainState, resolution, m float64) int {
 		// Remove n from its current community (temporarily).
 		state.commStr[currentComm] -= ki
 
-		// Gather candidate communities: current community + all neighbor communities.
-		// Use candidateBuf + neighborBuf (as a seen-set, keyed by NodeID(commID)) and
-		// neighborDirty for O(1) cleanup to avoid per-node map allocation.
+		// Single-pass neighbor accumulation:
+		// Accumulate edge weights from n to each neighbor community into neighborBuf.
+		// Also gather candidate communities (with dedup) into candidateBuf.
+		// neighborDirty tracks keys written so we can reset without clearing the whole map.
 		state.candidateBuf = state.candidateBuf[:0]
-		// Clean up neighborBuf entries from the previous node's iteration.
 		for _, k := range state.neighborDirty {
 			delete(state.neighborBuf, k)
 		}
 		state.neighborDirty = state.neighborDirty[:0]
 
-		// markComm adds comm to candidateBuf if not yet seen this iteration.
-		markComm := func(comm int) {
-			key := NodeID(comm)
-			if _, seen := state.neighborBuf[key]; !seen {
-				state.neighborBuf[key] = 1.0
-				state.neighborDirty = append(state.neighborDirty, key)
-				state.candidateBuf = append(state.candidateBuf, comm)
-			}
+		// Always include currentComm (even if no neighbors there after removal).
+		if _, seen := state.neighborBuf[NodeID(currentComm)]; !seen {
+			state.neighborBuf[NodeID(currentComm)] = 0.0
+			state.neighborDirty = append(state.neighborDirty, NodeID(currentComm))
+			state.candidateBuf = append(state.candidateBuf, currentComm)
 		}
-		markComm(currentComm)
 		for _, e := range g.Neighbors(n) {
-			markComm(state.partition[e.To])
+			nc := state.partition[e.To]
+			key := NodeID(nc)
+			if _, seen := state.neighborBuf[key]; !seen {
+				state.neighborBuf[key] = 0.0
+				state.neighborDirty = append(state.neighborDirty, key)
+				state.candidateBuf = append(state.candidateBuf, nc)
+			}
+			state.neighborBuf[key] += e.Weight
 		}
+		// neighborBuf[NodeID(comm)] now holds kiIn for community comm.
+
 		candidates := state.candidateBuf
-		// Insertion sort for deterministic order.
+		// Insertion sort — candidate count is small (bounded by node degree).
 		for i := 1; i < len(candidates); i++ {
 			for j := i; j > 0 && candidates[j] < candidates[j-1]; j-- {
 				candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
 			}
 		}
 
-		// Compute deltaQ for staying in currentComm.
-		curDQ := deltaQ(g, n, currentComm, state.partition, state.commStr, resolution, m)
+		// Inline ΔQ computation using precomputed kiIn from neighborBuf.
+		// ΔQ(comm) = kiIn/m - resolution*(sigTot/(2m))*(ki/(2m))
+		twoM := 2.0 * m
+		kiOverTwoM := ki / twoM
 
-		// Find best community (highest deltaQ gain over staying in currentComm).
-		// Ties broken by lower community ID (candidates is sorted, so first seen wins ties).
+		kiInCur := state.neighborBuf[NodeID(currentComm)]
+		sigTotCur := state.commStr[currentComm]
+		curDQ := kiInCur/m - resolution*(sigTotCur/twoM)*kiOverTwoM
+
+		// Find best community (highest ΔQ gain over staying in currentComm).
+		// Ties broken by lower community ID (candidates is sorted, so first seen wins).
 		bestComm := currentComm
 		bestGain := 0.0
 		for _, comm := range candidates {
 			if comm == currentComm {
 				continue
 			}
-			gain := deltaQ(g, n, comm, state.partition, state.commStr, resolution, m) - curDQ
-			if gain > bestGain {
+			kiIn := state.neighborBuf[NodeID(comm)]
+			sigTot := state.commStr[comm]
+			dq := kiIn/m - resolution*(sigTot/twoM)*kiOverTwoM
+			if gain := dq - curDQ; gain > bestGain {
 				bestGain = gain
 				bestComm = comm
 			}
@@ -263,12 +274,7 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 	for comm := range commSet {
 		commList = append(commList, comm)
 	}
-	// Insertion sort — communities are small in number.
-	for i := 1; i < len(commList); i++ {
-		for j := i; j > 0 && commList[j] < commList[j-1]; j-- {
-			commList[j], commList[j-1] = commList[j-1], commList[j]
-		}
-	}
+	slices.Sort(commList)
 
 	// Assign contiguous supernode IDs in sorted community order.
 	commToSuper := make(map[int]NodeID, len(commList))
@@ -341,12 +347,8 @@ func normalizePartition(partition map[NodeID]int) map[NodeID]int {
 	for n := range partition {
 		nodes = append(nodes, n)
 	}
-	// Insertion sort — small N, simple, avoids import of sort package.
-	for i := 1; i < len(nodes); i++ {
-		for j := i; j > 0 && nodes[j] < nodes[j-1]; j-- {
-			nodes[j], nodes[j-1] = nodes[j-1], nodes[j]
-		}
-	}
+	// Use slices.Sort (O(n log n)) — insertion sort is too slow for large graphs.
+	slices.Sort(nodes)
 
 	remap := make(map[int]int)
 	next := 0
