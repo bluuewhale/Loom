@@ -3,7 +3,6 @@
 ## Git
 
 - Do **not** add `Co-Authored-By: Claude` or any Claude Code co-author trailer to commit messages.
-- Do **not** commit GSD plan-related files (`.planning/` directory and its contents) to git.
 
 ## Workflow
 
