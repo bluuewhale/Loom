@@ -46,10 +46,10 @@ These requirements are already shipped and verified in the codebase:
 
 ### Performance
 
-- [ ] **PERF-01**: 10,000 노드 / ~50,000 엣지 그래프 기준 < 100ms (단일 고루틴, `-bench` 측정)
-- [ ] **PERF-02**: Concurrent-safe — 서로 다른 `*Graph` 인스턴스에 동시 `Detect` 호출 시 race condition 없음
-- [ ] **PERF-03**: `sync.Pool`로 `louvainState` 재사용 — 동일 크기 그래프 반복 처리 시 allocations 최소화
-- [ ] **PERF-04**: `go test -race` 통과 — 동시성 안전성 검증
+- [x] **PERF-01**: 10,000 노드 / ~50,000 엣지 그래프 기준 < 100ms (단일 고루틴, `-bench` 측정)
+- [x] **PERF-02**: Concurrent-safe — 서로 다른 `*Graph` 인스턴스에 동시 `Detect` 호출 시 race condition 없음
+- [x] **PERF-03**: `sync.Pool`로 `louvainState` 재사용 — 동일 크기 그래프 반복 처리 시 allocations 최소화
+- [x] **PERF-04**: `go test -race` 통과 — 동시성 안전성 검증
 
 ### Testing & Benchmarks
 
@@ -57,7 +57,7 @@ These requirements are already shipped and verified in the codebase:
 - [x] **TEST-02**: Football network (115 노드, 613 엣지) 픽스처 추가 + NMI 검증
 - [x] **TEST-03**: Polbooks 픽스처 추가 (105 노드, 441 엣지)
 - [x] **TEST-04**: 8개 엣지 케이스 커버리지 — 빈 그래프, 단일 노드, 완전 단절, giant+singletons, 2노드, zero resolution, 완전 그래프, 자기 루프
-- [ ] **TEST-05**: `benchstat` 기반 성능 회귀 방지 테스트
+- [x] **TEST-05**: `benchstat` 기반 성능 회귀 방지 테스트
 
 ---
 
@@ -114,15 +114,15 @@ These requirements are already shipped and verified in the codebase:
 | LEID-02 | Phase 03 | Complete |
 | LEID-03 | Phase 03 | Complete |
 | LEID-04 | Phase 03 | Complete |
-| PERF-01 | Phase 04 | Pending |
-| PERF-02 | Phase 04 | Pending |
-| PERF-03 | Phase 04 | Pending |
-| PERF-04 | Phase 04 | Pending |
+| PERF-01 | Phase 04 | Complete |
+| PERF-02 | Phase 04 | Complete |
+| PERF-03 | Phase 04 | Complete |
+| PERF-04 | Phase 04 | Complete |
 | TEST-01 | Phase 04 | Complete |
 | TEST-02 | Phase 04 | Complete |
 | TEST-03 | Phase 04 | Complete |
 | TEST-04 | Phase 04 | Complete |
-| TEST-05 | Phase 04 | Pending |
+| TEST-05 | Phase 04 | Complete |
 
 **Coverage:**
 - Milestone 1 requirements: 24 total
