@@ -17,13 +17,15 @@
 - ✓ 문자열 레이블 ↔ NodeID 변환 (`NodeRegistry`) — Phase 01-03
 - ✓ 벤치마크 픽스처 (Karate Club 34노드, 78엣지, ground-truth partition) — Phase 01-02
 
+### Validated
+
+- ✓ `CommunityDetector` 인터페이스 — 알고리즘 교체 가능한 통합 진입점 — Validated in Phase 02: Interface + Louvain Core
+- ✓ Louvain 알고리즘 구현 (phase 최적화, resolution parameter) — Validated in Phase 02: Interface + Louvain Core
+- ✓ Leiden 알고리즘 구현 (Louvain 개선판 — 커뮤니티 단절 방지, NMI=0.716, Q=0.373) — Validated in Phase 03: Leiden Implementation
+
 ### Active
 
 *(Milestone 1: Community Detection)*
-
-- [ ] `CommunityDetector` 인터페이스 — 알고리즘 교체 가능한 통합 진입점
-- [ ] Louvain 알고리즘 구현 (phase 최적화, resolution parameter)
-- [ ] Leiden 알고리즘 구현 (Louvain 개선판 — 커뮤니티 단절 방지)
 - [ ] 10,000 노드 그래프 기준 < 100ms/그래프 성능 목표
 - [ ] 동시 안전(concurrent-safe) 설계 — 실시간 쿼리 시 여러 그래프 병렬 분석
 - [ ] Karate Club 포함 표준 벤치마크 그래프 픽스처 확장
@@ -89,4 +91,4 @@
 4. 다음 마일스톤 Active 요구사항 갱신
 
 ---
-*Last updated: 2026-03-29 after Phase 02 (Interface + Louvain Core) — CommunityDetector interface, LouvainOptions, LeidenOptions, CommunityResult, and full Louvain algorithm complete. Q=0.4156 on Karate Club. IFACE-01~06, LOUV-01~05 validated.*
+*Last updated: 2026-03-29 after Phase 03 (Leiden Implementation) — LeidenDetector with BFS refinement phase complete. Q=0.3732, NMI=0.716 on Karate Club. LEID-01~04 validated.*
