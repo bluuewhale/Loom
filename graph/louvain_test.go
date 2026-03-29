@@ -242,3 +242,131 @@ func TestLouvainTwoTrianglesConnected(t *testing.T) {
 	t.Logf("TwoTrianglesConnected: Q=%.4f communities=%d", res.Modularity, uniqueCommunities(res.Partition))
 }
 
+// TestLouvainGiantPlusSingletons verifies a 3-node triangle plus 2 isolated nodes.
+// Triangle nodes should end up in the same community; singletons each in own community.
+func TestLouvainGiantPlusSingletons(t *testing.T) {
+	g := NewGraph(false)
+	// Triangle: nodes 0, 1, 2
+	g.AddEdge(NodeID(0), NodeID(1), 1.0)
+	g.AddEdge(NodeID(1), NodeID(2), 1.0)
+	g.AddEdge(NodeID(0), NodeID(2), 1.0)
+	// Singletons: nodes 3 and 4
+	g.AddNode(NodeID(3), 1.0)
+	g.AddNode(NodeID(4), 1.0)
+
+	det := NewLouvain(LouvainOptions{Seed: 42})
+	res, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Partition) != 5 {
+		t.Errorf("partition len = %d, want 5", len(res.Partition))
+	}
+	// Triangle nodes must be in the same community.
+	c0 := res.Partition[NodeID(0)]
+	c1 := res.Partition[NodeID(1)]
+	c2 := res.Partition[NodeID(2)]
+	if c0 != c1 || c1 != c2 {
+		t.Errorf("triangle nodes in different communities: %d %d %d, want same", c0, c1, c2)
+	}
+	// Singletons must each be in their own community.
+	c3 := res.Partition[NodeID(3)]
+	c4 := res.Partition[NodeID(4)]
+	if c3 == c0 || c4 == c0 || c3 == c4 {
+		t.Errorf("singletons not isolated: triangle=%d, s3=%d, s4=%d", c0, c3, c4)
+	}
+	t.Logf("GiantPlusSingletons: Q=%.4f communities=%d", res.Modularity, uniqueCommunities(res.Partition))
+}
+
+// TestLouvainZeroResolution verifies Resolution=0.0 defaults to 1.0 behavior (same as default).
+// Also tests Resolution=0.001 merges into fewer communities than default.
+func TestLouvainZeroResolution(t *testing.T) {
+	g := buildKarateClubLouvain()
+
+	// Resolution=0.0 should behave identically to Resolution=1.0 (default).
+	detZero := NewLouvain(LouvainOptions{Seed: 42, Resolution: 0.0})
+	detDefault := NewLouvain(LouvainOptions{Seed: 42})
+	resZero, err := detZero.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error (zero): %v", err)
+	}
+	resDefault, err := detDefault.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error (default): %v", err)
+	}
+	if math.Abs(resZero.Modularity-resDefault.Modularity) > 1e-10 {
+		t.Errorf("Resolution=0.0 Q=%.10f, default Q=%.10f, want identical", resZero.Modularity, resDefault.Modularity)
+	}
+
+	// Resolution=0.001 (very low) should produce fewer or equal communities than default.
+	detLow := NewLouvain(LouvainOptions{Seed: 42, Resolution: 0.001})
+	resLow, err := detLow.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error (low): %v", err)
+	}
+	commDefault := uniqueCommunities(resDefault.Partition)
+	commLow := uniqueCommunities(resLow.Partition)
+	if commLow > commDefault {
+		t.Errorf("low resolution has more communities (%d) than default (%d); expect fewer", commLow, commDefault)
+	}
+	t.Logf("ZeroResolution: default_Q=%.4f default_comm=%d low_Q=%.4f low_comm=%d",
+		resDefault.Modularity, commDefault, resLow.Modularity, commLow)
+}
+
+// TestLouvainCompleteGraph verifies a 5-node complete graph returns no error, valid partition,
+// and Q close to 0 (merging all into one community).
+func TestLouvainCompleteGraph(t *testing.T) {
+	g := NewGraph(false)
+	// Complete graph K5: 10 edges
+	for i := 0; i < 5; i++ {
+		for j := i + 1; j < 5; j++ {
+			g.AddEdge(NodeID(i), NodeID(j), 1.0)
+		}
+	}
+
+	det := NewLouvain(LouvainOptions{Seed: 42})
+	res, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Partition) != 5 {
+		t.Errorf("partition len = %d, want 5", len(res.Partition))
+	}
+	// All nodes should be in the same community (Q = 0 for complete graph).
+	comms := uniqueCommunities(res.Partition)
+	if comms != 1 {
+		t.Errorf("communities = %d, want 1 (complete graph merges all)", comms)
+	}
+	// Q for a complete graph is 0 regardless of partition.
+	if math.Abs(res.Modularity) > 0.1 {
+		t.Errorf("Q = %.4f, want ~0 for complete graph", res.Modularity)
+	}
+	t.Logf("CompleteGraph: Q=%.4f communities=%d", res.Modularity, comms)
+}
+
+// TestLouvainSelfLoop verifies a graph with a self-loop plus a normal edge returns no error
+// and produces a valid partition.
+func TestLouvainSelfLoop(t *testing.T) {
+	g := NewGraph(false)
+	// Self-loop on node 0
+	g.AddEdge(NodeID(0), NodeID(0), 1.0)
+	// Normal edge 0-1
+	g.AddEdge(NodeID(0), NodeID(1), 1.0)
+
+	det := NewLouvain(LouvainOptions{Seed: 42})
+	res, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Partition) != 2 {
+		t.Errorf("partition len = %d, want 2", len(res.Partition))
+	}
+	// Both nodes must have a valid community assignment.
+	if _, ok := res.Partition[NodeID(0)]; !ok {
+		t.Errorf("node 0 missing from partition")
+	}
+	if _, ok := res.Partition[NodeID(1)]; !ok {
+		t.Errorf("node 1 missing from partition")
+	}
+	t.Logf("SelfLoop: Q=%.4f communities=%d", res.Modularity, uniqueCommunities(res.Partition))
+}
