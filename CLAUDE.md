@@ -8,9 +8,9 @@
 ## Workflow
 
 - For any non-trivial task, use the **GSD (Get-Shit-Done) workflow** via the `gsd:*` skills.
-  - Simple tasks (single-file edits, typo fixes, one-liners) can be done directly.
+  - Simple tasks can be done directly via `/gsd:fast`.
   - When in doubt, use GSD.
-- Typical GSD flow: `gsd:new-project` or `gsd:new-milestone` → `gsd:plan-phase` → `gsd:execute-phase` → `gsd:verify-work`
+- See `.claude/rules/gsd.md` for detailed GSD command usage and best practices.
 
 ## Code / Design / Plan Reviews
 
