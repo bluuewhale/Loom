@@ -39,7 +39,7 @@ Plans:
   2. `Detect(g)` on Karate Club returns Q > 0.35 and a valid 2-4 community partition
   3. `Detect(g)` on empty graph, single node, two-node graph, and fully disconnected graph all return without panic or error
   4. `CommunityResult` exposes `Partition`, `Modularity`, `Passes`, and `Moves` fields populated with non-zero data
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 02-01: detector.go (CommunityDetector interface, CommunityResult, LouvainOptions, LeidenOptions)
@@ -53,7 +53,7 @@ Plans:
   1. `NewLeiden(opts).Detect(karateClub)` returns Q > 0.35 and NMI >= 0.7 vs ground-truth partition
   2. Every community in every Leiden result is internally connected (no disconnected communities)
   3. Leiden and Louvain are drop-in swaps — identical call site, `CommunityDetector` variable only changes constructor
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 03-01: leiden.go + leiden_state.go (local move, refinement phase, aggregation)
@@ -68,7 +68,7 @@ Plans:
   3. Louvain and Leiden both achieve Q > 0.35 on Karate Club, and NMI validation passes on Football (115 nodes) and Polbooks (105 nodes) fixtures
   4. All 8 edge cases (empty, single node, disconnected, giant+singletons, two-node, zero resolution, complete graph, self-loop) pass without error
   5. `sync.Pool` warmup shows 0 allocs/op on repeated same-size graph calls (`-benchmem`)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 04-01: Football + Polbooks fixtures, NMI helper, accuracy test suite
