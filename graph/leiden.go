@@ -1,5 +1,7 @@
 package graph
 
+import "slices"
+
 // Detect runs the Leiden community detection algorithm on graph g.
 // Leiden improves on Louvain by guaranteeing internally-connected communities:
 // after each local-move phase, a BFS refinement splits any disconnected
@@ -172,12 +174,7 @@ func refinePartition(g *Graph, partition map[NodeID]int) map[NodeID]int {
 	for c := range commNodes {
 		commIDs = append(commIDs, c)
 	}
-	// Insertion sort — community count is small.
-	for i := 1; i < len(commIDs); i++ {
-		for j := i; j > 0 && commIDs[j] < commIDs[j-1]; j-- {
-			commIDs[j], commIDs[j-1] = commIDs[j-1], commIDs[j]
-		}
-	}
+	slices.Sort(commIDs)
 
 	refined := make(map[NodeID]int, len(partition))
 	nextID := 0

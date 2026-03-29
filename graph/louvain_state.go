@@ -2,6 +2,7 @@ package graph
 
 import (
 	"math/rand"
+	"slices"
 	"sync"
 	"time"
 )
@@ -64,11 +65,7 @@ func (st *louvainState) reset(g *Graph, seed int64) {
 
 	// Populate singleton communities in ascending NodeID order for determinism.
 	nodes := g.Nodes()
-	for i := 1; i < len(nodes); i++ {
-		for j := i; j > 0 && nodes[j] < nodes[j-1]; j-- {
-			nodes[j], nodes[j-1] = nodes[j-1], nodes[j]
-		}
-	}
+	slices.Sort(nodes)
 	for i, n := range nodes {
 		st.partition[n] = i
 		st.commStr[i] = g.Strength(n)
@@ -86,11 +83,7 @@ func newLouvainState(g *Graph, seed int64) *louvainState {
 	}
 
 	nodes := g.Nodes()
-	for i := 1; i < len(nodes); i++ {
-		for j := i; j > 0 && nodes[j] < nodes[j-1]; j-- {
-			nodes[j], nodes[j-1] = nodes[j-1], nodes[j]
-		}
-	}
+	slices.Sort(nodes)
 
 	partition := make(map[NodeID]int, len(nodes))
 	commStr := make(map[int]float64, len(nodes))
