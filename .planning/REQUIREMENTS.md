@@ -39,10 +39,10 @@ These requirements are already shipped and verified in the codebase:
 
 ### Leiden Algorithm
 
-- [ ] **LEID-01**: Phase 1 local move — Louvain Phase 1과 동일한 ΔQ 최적화
-- [ ] **LEID-02**: Refinement phase — 각 커뮤니티 내부 연결성 보장 (단절 커뮤니티 방지); 모든 커뮤니티를 매 iteration 정제
-- [ ] **LEID-03**: Phase 3 aggregation — 정제된 partition 기준으로 수퍼그래프 구성
-- [ ] **LEID-04**: Karate Club NMI ≥ 0.7 — ground-truth 2-커뮤니티 대비 Louvain보다 동등하거나 우수
+- [x] **LEID-01**: Phase 1 local move — Louvain Phase 1과 동일한 ΔQ 최적화
+- [x] **LEID-02**: Refinement phase — 각 커뮤니티 내부 연결성 보장 (단절 커뮤니티 방지); 모든 커뮤니티를 매 iteration 정제
+- [x] **LEID-03**: Phase 3 aggregation — 정제된 partition 기준으로 수퍼그래프 구성
+- [x] **LEID-04**: Karate Club NMI ≥ 0.7 — ground-truth 2-커뮤니티 대비 Louvain보다 동등하거나 우수
 
 ### Performance
 
@@ -110,10 +110,10 @@ These requirements are already shipped and verified in the codebase:
 | LOUV-03 | Phase 02 | Complete |
 | LOUV-04 | Phase 02 | Complete |
 | LOUV-05 | Phase 02 | Complete |
-| LEID-01 | Phase 03 | Pending |
-| LEID-02 | Phase 03 | Pending |
-| LEID-03 | Phase 03 | Pending |
-| LEID-04 | Phase 03 | Pending |
+| LEID-01 | Phase 03 | Complete |
+| LEID-02 | Phase 03 | Complete |
+| LEID-03 | Phase 03 | Complete |
+| LEID-04 | Phase 03 | Complete |
 | PERF-01 | Phase 04 | Pending |
 | PERF-02 | Phase 04 | Pending |
 | PERF-03 | Phase 04 | Pending |
