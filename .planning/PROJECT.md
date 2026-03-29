@@ -23,13 +23,16 @@
 - ✓ Louvain 알고리즘 구현 (phase 최적화, resolution parameter) — Validated in Phase 02: Interface + Louvain Core
 - ✓ Leiden 알고리즘 구현 (Louvain 개선판 — 커뮤니티 단절 방지, NMI=0.716, Q=0.373) — Validated in Phase 03: Leiden Implementation
 
+### Validated (continued)
+
+- ✓ 10,000 노드 그래프 기준 < 100ms/그래프 성능 목표 (Louvain 48ms, Leiden 57ms) — Phase 04
+- ✓ 동시 안전(concurrent-safe) 설계 — sync.Pool + go test -race 통과 — Phase 04
+- ✓ Karate Club + Football (115-node) + Polbooks (105-node) 벤치마크 픽스처 — Phase 04
+- ✓ 정확도 검증: 3개 그래프 ground-truth NMI 검증 — Phase 04
+
 ### Active
 
-*(Milestone 1: Community Detection)*
-- [ ] 10,000 노드 그래프 기준 < 100ms/그래프 성능 목표
-- [ ] 동시 안전(concurrent-safe) 설계 — 실시간 쿼리 시 여러 그래프 병렬 분석
-- [ ] Karate Club 포함 표준 벤치마크 그래프 픽스처 확장
-- [ ] 정확도 검증: 알려진 그래프에서 ground-truth 커뮤니티 재현
+*(No active requirements — Milestone 1 complete)*
 
 ### Out of Scope
 
@@ -91,4 +94,4 @@
 4. 다음 마일스톤 Active 요구사항 갱신
 
 ---
-*Last updated: 2026-03-29 after Phase 03 (Leiden Implementation) — LeidenDetector with BFS refinement phase complete. Q=0.3732, NMI=0.716 on Karate Club. LEID-01~04 validated.*
+*Last updated: 2026-03-29 after Phase 04 (Performance Hardening + Benchmark Fixtures) — Louvain 48ms/10K, Leiden 57ms/10K, sync.Pool, race-free, Football+Polbooks fixtures added. PERF-01~04, TEST-01~05 validated. Milestone 1 complete.*
