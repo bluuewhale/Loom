@@ -242,11 +242,3 @@ func TestLouvainTwoTrianglesConnected(t *testing.T) {
 	t.Logf("TwoTrianglesConnected: Q=%.4f communities=%d", res.Modularity, uniqueCommunities(res.Partition))
 }
 
-// uniqueCommunities returns the number of distinct community IDs in partition.
-func uniqueCommunities(partition map[NodeID]int) int {
-	seen := make(map[int]struct{})
-	for _, c := range partition {
-		seen[c] = struct{}{}
-	}
-	return len(seen)
-}
