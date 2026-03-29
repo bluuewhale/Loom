@@ -22,12 +22,12 @@ These requirements are already shipped and verified in the codebase:
 
 ### Interface
 
-- [ ] **IFACE-01**: `CommunityDetector` 인터페이스 — `Detect(g *Graph) (CommunityResult, error)` 시그니처로 알고리즘 교체 가능
-- [ ] **IFACE-02**: `CommunityResult` 구조체 — `Partition map[NodeID]int`, `Modularity float64`, `Passes int`, `Moves int` 포함
-- [ ] **IFACE-03**: `LouvainOptions` 구조체 — `Resolution float64`, `Seed int64`, `MaxPasses int`, `Tolerance float64`
-- [ ] **IFACE-04**: `LeidenOptions` 구조체 — `Resolution float64`, `Seed int64`, `MaxIterations int`, `Tolerance float64`
-- [ ] **IFACE-05**: `NewLouvain(opts LouvainOptions) CommunityDetector` 생성자
-- [ ] **IFACE-06**: `NewLeiden(opts LeidenOptions) CommunityDetector` 생성자
+- [x] **IFACE-01**: `CommunityDetector` 인터페이스 — `Detect(g *Graph) (CommunityResult, error)` 시그니처로 알고리즘 교체 가능
+- [x] **IFACE-02**: `CommunityResult` 구조체 — `Partition map[NodeID]int`, `Modularity float64`, `Passes int`, `Moves int` 포함
+- [x] **IFACE-03**: `LouvainOptions` 구조체 — `Resolution float64`, `Seed int64`, `MaxPasses int`, `Tolerance float64`
+- [x] **IFACE-04**: `LeidenOptions` 구조체 — `Resolution float64`, `Seed int64`, `MaxIterations int`, `Tolerance float64`
+- [x] **IFACE-05**: `NewLouvain(opts LouvainOptions) CommunityDetector` 생성자
+- [x] **IFACE-06**: `NewLeiden(opts LeidenOptions) CommunityDetector` 생성자
 
 ### Louvain Algorithm
 
@@ -99,12 +99,12 @@ These requirements are already shipped and verified in the codebase:
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IFACE-01 | Phase 02 | Pending |
-| IFACE-02 | Phase 02 | Pending |
-| IFACE-03 | Phase 02 | Pending |
-| IFACE-04 | Phase 02 | Pending |
-| IFACE-05 | Phase 02 | Pending |
-| IFACE-06 | Phase 02 | Pending |
+| IFACE-01 | Phase 02 | Complete |
+| IFACE-02 | Phase 02 | Complete |
+| IFACE-03 | Phase 02 | Complete |
+| IFACE-04 | Phase 02 | Complete |
+| IFACE-05 | Phase 02 | Complete |
+| IFACE-06 | Phase 02 | Complete |
 | LOUV-01 | Phase 02 | Pending |
 | LOUV-02 | Phase 02 | Pending |
 | LOUV-03 | Phase 02 | Pending |
