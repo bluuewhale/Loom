@@ -59,6 +59,50 @@ Use this when the feature represents a new direction, a v2 expansion, or was out
 
 ---
 
+## Parallel Work with Git Worktrees
+
+`.planning/STATE.md`, `ROADMAP.md`, `REQUIREMENTS.md` are global state files updated on every phase execution. Merging parallel worktrees that both modified these files would cause conflicts.
+
+**Solution:** `.gitattributes` is configured so these global files always keep main's version on merge. Each worktree's `phases/` directories are fully merged in.
+
+### Setup (already configured in `.gitattributes`)
+
+```
+.planning/STATE.md        merge=ours
+.planning/ROADMAP.md      merge=ours
+.planning/REQUIREMENTS.md merge=ours
+```
+
+### Workflow
+
+```bash
+# 1. Create worktrees and start immediately — no upfront coordination needed
+git worktree add ../loom-auth feat/auth
+git worktree add ../loom-payment feat/payment
+
+# 2. Run GSD freely in each worktree
+/gsd:new-milestone "Auth System"
+/gsd:plan-phase 1
+/gsd:execute-phase 1
+
+# 3. PR → merge to main (global files auto-resolved, phases merged in)
+
+# 4. After merge: briefly update STATE.md on main to reflect completed work
+```
+
+### What happens at merge
+
+| File | Merge behavior |
+|---|---|
+| `STATE.md`, `ROADMAP.md`, `REQUIREMENTS.md` | main's version is kept automatically |
+| `phases/XX-*/` | both worktrees' phase dirs are merged in |
+
+### One manual step
+
+After merging a worktree branch, update `STATE.md` on main to reflect what was completed. This is the only coordination required.
+
+---
+
 ## Best Practices
 
 - **`/clear` before and after each phase** — prevents context pollution; start each step cleanly.
