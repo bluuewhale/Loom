@@ -53,10 +53,10 @@ These requirements are already shipped and verified in the codebase:
 
 ### Testing & Benchmarks
 
-- [ ] **TEST-01**: Karate Club — Louvain, Leiden 모두 Q > 0.35 달성
-- [ ] **TEST-02**: Football network (115 노드, 613 엣지) 픽스처 추가 + NMI 검증
-- [ ] **TEST-03**: Polbooks 픽스처 추가 (105 노드, 441 엣지)
-- [ ] **TEST-04**: 8개 엣지 케이스 커버리지 — 빈 그래프, 단일 노드, 완전 단절, giant+singletons, 2노드, zero resolution, 완전 그래프, 자기 루프
+- [x] **TEST-01**: Karate Club — Louvain, Leiden 모두 Q > 0.35 달성
+- [x] **TEST-02**: Football network (115 노드, 613 엣지) 픽스처 추가 + NMI 검증
+- [x] **TEST-03**: Polbooks 픽스처 추가 (105 노드, 441 엣지)
+- [x] **TEST-04**: 8개 엣지 케이스 커버리지 — 빈 그래프, 단일 노드, 완전 단절, giant+singletons, 2노드, zero resolution, 완전 그래프, 자기 루프
 - [ ] **TEST-05**: `benchstat` 기반 성능 회귀 방지 테스트
 
 ---
@@ -118,10 +118,10 @@ These requirements are already shipped and verified in the codebase:
 | PERF-02 | Phase 04 | Pending |
 | PERF-03 | Phase 04 | Pending |
 | PERF-04 | Phase 04 | Pending |
-| TEST-01 | Phase 04 | Pending |
-| TEST-02 | Phase 04 | Pending |
-| TEST-03 | Phase 04 | Pending |
-| TEST-04 | Phase 04 | Pending |
+| TEST-01 | Phase 04 | Complete |
+| TEST-02 | Phase 04 | Complete |
+| TEST-03 | Phase 04 | Complete |
+| TEST-04 | Phase 04 | Complete |
 | TEST-05 | Phase 04 | Pending |
 
 **Coverage:**

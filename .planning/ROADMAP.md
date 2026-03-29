@@ -71,7 +71,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: Football + Polbooks fixtures, NMI helper, accuracy test suite
+- [x] 04-01: Football + Polbooks fixtures, NMI helper, accuracy test suite
 - [ ] 04-02: sync.Pool integration, neighborWeightBuf dirty-list, benchmarks + benchstat baseline
 
 ## Progress
