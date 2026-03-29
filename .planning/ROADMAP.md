@@ -56,7 +56,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 03-01: leiden.go + leiden_state.go (local move, refinement phase, aggregation)
+- [x] 03-01: leiden.go + leiden_state.go (local move, refinement phase, aggregation)
 
 ### Phase 04: Performance Hardening + Benchmark Fixtures
 **Goal**: Both algorithms meet the <100ms / 10K-node target, concurrent use is race-free, and accuracy is validated on three benchmark graphs
