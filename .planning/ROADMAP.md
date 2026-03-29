@@ -10,7 +10,7 @@ Phase 01 (graph data structures, modularity, registry) is complete. This roadmap
 
 - [x] **Phase 01: Graph Data Structures, Modularity, Registry** - Weighted graph, modularity Q, NodeRegistry — COMPLETE
 - [x] **Phase 02: Interface + Louvain Core** - CommunityDetector interface, LouvainDetector with all edge-case guards (completed 2026-03-29)
-- [ ] **Phase 03: Leiden Implementation** - LeidenDetector with refinement phase and connected-community guarantee
+- [x] **Phase 03: Leiden Implementation** - LeidenDetector with refinement phase and connected-community guarantee (completed 2026-03-29)
 - [ ] **Phase 04: Performance Hardening + Benchmark Fixtures** - <100ms target verified, Football/Polbooks fixtures, race-free
 
 ## Phase Details
@@ -82,5 +82,5 @@ Plans:
 |-------|----------------|--------|-----------|
 | 01. Graph Data Structures, Modularity, Registry | 3/3 | Complete | 2026-03-29 |
 | 02. Interface + Louvain Core | 2/2 | Complete    | 2026-03-29 |
-| 03. Leiden Implementation | 0/1 | Not started | - |
+| 03. Leiden Implementation | 0/1 | Complete    | 2026-03-29 |
 | 04. Performance Hardening + Benchmark Fixtures | 0/2 | Not started | - |
