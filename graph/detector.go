@@ -56,18 +56,12 @@ func NewLouvain(opts LouvainOptions) CommunityDetector {
 	return &louvainDetector{opts: opts}
 }
 
-// leidenDetector is a stub for the Leiden algorithm (Phase 03).
+// leidenDetector implements CommunityDetector using the Leiden algorithm.
 type leidenDetector struct {
 	opts LeidenOptions
 }
 
 // NewLeiden returns a CommunityDetector that uses the Leiden algorithm.
-// NOTE: Not yet implemented; Detect returns an error.
 func NewLeiden(opts LeidenOptions) CommunityDetector {
 	return &leidenDetector{opts: opts}
-}
-
-// Detect on leidenDetector is a stub — returns error until Phase 03.
-func (l *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
-	return CommunityResult{}, errors.New("leiden: not yet implemented")
 }
