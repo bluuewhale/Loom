@@ -69,11 +69,21 @@ func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 	}
 	var bestSuperPartition map[NodeID]int
 
+	state := acquireLeidenState(currentGraph, seed)
+	defer releaseLeidenState(state)
+
 	for {
-		state := newLeidenState(currentGraph, seed)
+		state.reset(currentGraph, seed)
 
 		// Phase 1: local move — reuse Louvain phase1 via louvainState wrapper.
-		ls := &louvainState{partition: state.partition, commStr: state.commStr, rng: state.rng}
+		ls := &louvainState{
+			partition:     state.partition,
+			commStr:       state.commStr,
+			neighborBuf:   state.neighborBuf,
+			neighborDirty: state.neighborDirty,
+			candidateBuf:  make([]int, 0, 64),
+			rng:           state.rng,
+		}
 		moves := phase1(currentGraph, ls, resolution, currentGraph.TotalWeight())
 		state.partition = ls.partition
 		state.commStr = ls.commStr
@@ -91,7 +101,11 @@ func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 			for k, v := range nodeMapping {
 				bestNodeMapping[k] = v
 			}
-			bestSuperPartition = state.refinedPartition
+			// Copy refinedPartition — state maps are cleared on reset each iteration.
+			bestSuperPartition = make(map[NodeID]int, len(state.refinedPartition))
+			for k, v := range state.refinedPartition {
+				bestSuperPartition[k] = v
+			}
 		}
 
 		if moves == 0 {

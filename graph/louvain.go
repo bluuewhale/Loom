@@ -69,8 +69,11 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	}
 	var bestSuperPartition map[NodeID]int
 
+	state := acquireLouvainState(currentGraph, seed)
+	defer releaseLouvainState(state)
+
 	for {
-		state := newLouvainState(currentGraph, seed)
+		state.reset(currentGraph, seed)
 		moves := phase1(currentGraph, state, resolution, currentGraph.TotalWeight())
 		totalPasses++
 		totalMoves += moves
@@ -85,7 +88,11 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 			for k, v := range nodeMapping {
 				bestNodeMapping[k] = v
 			}
-			bestSuperPartition = superPartition
+			// Copy superPartition — state.partition is reused across loop iterations.
+			bestSuperPartition = make(map[NodeID]int, len(superPartition))
+			for k, v := range superPartition {
+				bestSuperPartition[k] = v
+			}
 		}
 
 		if moves == 0 {
@@ -172,16 +179,29 @@ func phase1(g *Graph, state *louvainState, resolution, m float64) int {
 		state.commStr[currentComm] -= ki
 
 		// Gather candidate communities: current community + all neighbor communities.
-		// Use a map for deduplication, then sort for deterministic evaluation order.
-		candidateSet := make(map[int]struct{})
-		candidateSet[currentComm] = struct{}{}
+		// Use candidateBuf + neighborBuf (as a seen-set, keyed by NodeID(commID)) and
+		// neighborDirty for O(1) cleanup to avoid per-node map allocation.
+		state.candidateBuf = state.candidateBuf[:0]
+		// Clean up neighborBuf entries from the previous node's iteration.
+		for _, k := range state.neighborDirty {
+			delete(state.neighborBuf, k)
+		}
+		state.neighborDirty = state.neighborDirty[:0]
+
+		// markComm adds comm to candidateBuf if not yet seen this iteration.
+		markComm := func(comm int) {
+			key := NodeID(comm)
+			if _, seen := state.neighborBuf[key]; !seen {
+				state.neighborBuf[key] = 1.0
+				state.neighborDirty = append(state.neighborDirty, key)
+				state.candidateBuf = append(state.candidateBuf, comm)
+			}
+		}
+		markComm(currentComm)
 		for _, e := range g.Neighbors(n) {
-			candidateSet[state.partition[e.To]] = struct{}{}
+			markComm(state.partition[e.To])
 		}
-		candidates := make([]int, 0, len(candidateSet))
-		for comm := range candidateSet {
-			candidates = append(candidates, comm)
-		}
+		candidates := state.candidateBuf
 		// Insertion sort for deterministic order.
 		for i := 1; i < len(candidates); i++ {
 			for j := i; j > 0 && candidates[j] < candidates[j-1]; j-- {
