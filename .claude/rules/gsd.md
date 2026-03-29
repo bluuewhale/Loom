@@ -6,22 +6,21 @@
 /gsd:new-project → /gsd:plan-phase → /gsd:execute-phase → /gsd:verify-work → repeat
 ```
 
-## When to Use Which Command
+`/gsd:new-project` is run **once**. All subsequent work uses the commands below.
 
-- **`/gsd:new-project`** — one-time only; initializes the project with vision, requirements, and roadmap.
-- **`/gsd:new-milestone`** — use when adding a large batch of features (new milestone-level goal).
-- **`/gsd:add-phase`** — use when adding a single feature within the current milestone.
-- **`/gsd:insert-phase N`** — use when urgent work must be inserted between existing phases.
-- **`/gsd:quick`** — one-off tasks that need a plan but don't belong to a phase.
-- **`/gsd:fast`** — trivial changes (≤3 files); no planning overhead.
+## Command Selection
 
-## Adding Features After new-project
+| Situation | Command |
+|---|---|
+| New direction or v2-level scope | `/gsd:new-milestone` |
+| Feature within current milestone | `/gsd:add-phase` |
+| Urgent work between existing phases | `/gsd:insert-phase N` |
+| One-off task, no phase needed | `/gsd:quick` |
+| Trivial change (≤3 files) | `/gsd:fast` |
 
-`/gsd:new-project` is run **once**. All subsequent feature additions follow one of two paths:
+**Rule of thumb:** In scope when you ran `/gsd:new-project`? → `add-phase`. New direction or significant expansion? → `new-milestone`.
 
-### Path A: Feature fits within the current milestone scope → `add-phase`
-
-Use this when the feature was already implied or expected in the current v1 plan.
+### Adding a feature (in-scope)
 
 ```
 /gsd:add-phase "기능명"
@@ -30,83 +29,39 @@ Use this when the feature was already implied or expected in the current v1 plan
 /gsd:verify-work N
 ```
 
-Use `/gsd:insert-phase N "기능명"` instead if the feature must be done *before* an already-planned phase.
-
-### Path B: Feature goes beyond the current milestone scope → `new-milestone`
-
-Use this when the feature represents a new direction, a v2 expansion, or was out-of-scope in the original plan.
+### Starting a new milestone (out-of-scope)
 
 ```
-/gsd:complete-milestone 1.0.0     # close current milestone, create git tag
-/clear
-/gsd:new-milestone "v2.0 기능"    # define new requirements + roadmap
-/clear
+/gsd:complete-milestone 1.0.0
+/gsd:new-milestone "v2.0 기능"
 /gsd:plan-phase 1
 /gsd:execute-phase 1
 ```
-
-### Decision Guide
-
-| Situation | Command |
-|---|---|
-| Small addition, same goal as v1 | `/gsd:add-phase` |
-| Urgent fix needed mid-milestone | `/gsd:insert-phase N` |
-| New direction or v2-level scope | `/gsd:new-milestone` |
-| One-off task, no phase needed | `/gsd:quick` |
-| Trivial change (≤3 files) | `/gsd:fast` |
-
-**Rule of thumb:** If the feature was in scope when you ran `/gsd:new-project`, use `add-phase`. If it changes the product's direction or adds a significant new capability beyond what was originally planned, start a new milestone.
 
 ---
 
 ## Parallel Work with Git Worktrees
 
-`.planning/STATE.md`, `ROADMAP.md`, `REQUIREMENTS.md` are global state files updated on every phase execution. Merging parallel worktrees that both modified these files would cause conflicts.
-
-**Solution:** `.gitattributes` is configured so these global files always keep main's version on merge. Each worktree's `phases/` directories are fully merged in.
-
-### Setup (already configured in `.gitattributes`)
-
-```
-.planning/STATE.md        merge=ours
-.planning/ROADMAP.md      merge=ours
-.planning/REQUIREMENTS.md merge=ours
-```
-
-### Workflow
+Global state files (`STATE.md`, `ROADMAP.md`, `REQUIREMENTS.md`) are updated on every phase execution. `.gitattributes` is already configured so these files always keep main's version on merge — each worktree's `phases/` directories are fully merged in. No upfront coordination needed.
 
 ```bash
-# 1. Create worktrees and start immediately — no upfront coordination needed
+# Create worktrees and start immediately
 git worktree add ../loom-auth feat/auth
 git worktree add ../loom-payment feat/payment
 
-# 2. Run GSD freely in each worktree
-/gsd:new-milestone "Auth System"
-/gsd:plan-phase 1
-/gsd:execute-phase 1
-
-# 3. PR → merge to main (global files auto-resolved, phases merged in)
-
-# 4. After merge: briefly update STATE.md on main to reflect completed work
+# Run GSD freely and independently in each worktree
+# PR → merge to main: global files auto-resolved, phases merged in
+# After merge: briefly update STATE.md on main to reflect completed work
 ```
 
-### What happens at merge
-
-| File | Merge behavior |
-|---|---|
-| `STATE.md`, `ROADMAP.md`, `REQUIREMENTS.md` | main's version is kept automatically |
-| `phases/XX-*/` | both worktrees' phase dirs are merged in |
-
-### One manual step
-
-After merging a worktree branch, update `STATE.md` on main to reflect what was completed. This is the only coordination required.
+Phase directory names are feature-based (e.g. `01-auth-system/`, `01-payment/`), so two worktrees creating Phase 1 for different features will never produce the same path — no conflicts.
 
 ---
 
 ## Best Practices
 
-- **`/clear` before and after each phase** — prevents context pollution; start each step cleanly.
-- **Run `/gsd:discuss-phase` before planning** — conveys your vision to the planner; significantly improves plan quality.
-- **Check with `/gsd:list-phase-assumptions` before executing** — review Claude's intended approach and correct direction early.
-- **Use `--research` for complex domains** — specialized areas (3D, audio, ML, etc.) benefit from the research agent.
-- **`.planning/` files should be committed to git** — planning artifacts are part of the project history.
+- **`/clear` before and after each phase** — prevents context pollution.
+- **`/gsd:discuss-phase` before planning** — conveys your vision; significantly improves plan quality.
+- **`/gsd:list-phase-assumptions` before executing** — verify Claude's intended approach before it starts.
+- **`--research` for complex domains** — 3D, audio, ML, etc. benefit from the research agent.
+- **`.planning/` files should be committed to git** — planning artifacts are part of project history.
