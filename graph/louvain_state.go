@@ -13,7 +13,8 @@ type louvainState struct {
 }
 
 // newLouvainState initializes state with each node in its own community.
-// Community IDs start at 0 and are assigned in Nodes() order.
+// Community IDs start at 0 and are assigned in ascending NodeID order for
+// deterministic initialization regardless of map iteration order.
 func newLouvainState(g *Graph, seed int64) *louvainState {
 	var src rand.Source
 	if seed != 0 {
@@ -23,6 +24,13 @@ func newLouvainState(g *Graph, seed int64) *louvainState {
 	}
 
 	nodes := g.Nodes()
+	// Sort nodes by ID for deterministic community ID assignment.
+	for i := 1; i < len(nodes); i++ {
+		for j := i; j > 0 && nodes[j] < nodes[j-1]; j-- {
+			nodes[j], nodes[j-1] = nodes[j-1], nodes[j]
+		}
+	}
+
 	partition := make(map[NodeID]int, len(nodes))
 	commStr := make(map[int]float64, len(nodes))
 
