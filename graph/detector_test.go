@@ -25,13 +25,14 @@ func TestNewLeiden_ReturnsCommunityDetector(t *testing.T) {
 	}
 }
 
-// Test 3: NewLeiden.Detect returns a non-nil error (stub not implemented).
+// Test 3: NewLeiden.Detect returns nil error on a valid undirected graph.
 func TestNewLeiden_DetectReturnsError(t *testing.T) {
-	d := NewLeiden(LeidenOptions{})
+	d := NewLeiden(LeidenOptions{Seed: 1})
 	g := NewGraph(false)
+	// Empty graph — no error expected (returns empty CommunityResult).
 	_, err := d.Detect(g)
-	if err == nil {
-		t.Fatal("expected non-nil error from leidenDetector.Detect, got nil")
+	if err != nil {
+		t.Fatalf("expected nil error from leidenDetector.Detect on empty graph, got: %v", err)
 	}
 }
 
