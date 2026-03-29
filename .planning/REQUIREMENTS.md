@@ -31,11 +31,11 @@ These requirements are already shipped and verified in the codebase:
 
 ### Louvain Algorithm
 
-- [ ] **LOUV-01**: Phase 1 local move — 각 노드를 이웃 커뮤니티로 이동 시 ΔQ 최대화
-- [ ] **LOUV-02**: Phase 2 supergraph compression — 커뮤니티를 수퍼노드로 축약, 자기 루프 보존
-- [ ] **LOUV-03**: 수렴 종료 — 이동이 없는 완전한 패스 후 종료 (tolerance 기반 ΔQ 비교)
-- [ ] **LOUV-04**: 올바른 modularity 수식 — 자기 루프 k_i_in 제외, resolution parameter 적용
-- [ ] **LOUV-05**: 엣지 케이스 — 빈 그래프, 단일 노드, 완전 단절 그래프, 2노드 그래프 모두 에러 없이 반환
+- [x] **LOUV-01**: Phase 1 local move — 각 노드를 이웃 커뮤니티로 이동 시 ΔQ 최대화
+- [x] **LOUV-02**: Phase 2 supergraph compression — 커뮤니티를 수퍼노드로 축약, 자기 루프 보존
+- [x] **LOUV-03**: 수렴 종료 — 이동이 없는 완전한 패스 후 종료 (tolerance 기반 ΔQ 비교)
+- [x] **LOUV-04**: 올바른 modularity 수식 — 자기 루프 k_i_in 제외, resolution parameter 적용
+- [x] **LOUV-05**: 엣지 케이스 — 빈 그래프, 단일 노드, 완전 단절 그래프, 2노드 그래프 모두 에러 없이 반환
 
 ### Leiden Algorithm
 
@@ -105,11 +105,11 @@ These requirements are already shipped and verified in the codebase:
 | IFACE-04 | Phase 02 | Complete |
 | IFACE-05 | Phase 02 | Complete |
 | IFACE-06 | Phase 02 | Complete |
-| LOUV-01 | Phase 02 | Pending |
-| LOUV-02 | Phase 02 | Pending |
-| LOUV-03 | Phase 02 | Pending |
-| LOUV-04 | Phase 02 | Pending |
-| LOUV-05 | Phase 02 | Pending |
+| LOUV-01 | Phase 02 | Complete |
+| LOUV-02 | Phase 02 | Complete |
+| LOUV-03 | Phase 02 | Complete |
+| LOUV-04 | Phase 02 | Complete |
+| LOUV-05 | Phase 02 | Complete |
 | LEID-01 | Phase 03 | Pending |
 | LEID-02 | Phase 03 | Pending |
 | LEID-03 | Phase 03 | Pending |

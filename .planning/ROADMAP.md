@@ -9,7 +9,7 @@ Phase 01 (graph data structures, modularity, registry) is complete. This roadmap
 **Phase Numbering:** Continuing from Phase 01 (complete). New phases start at 02.
 
 - [x] **Phase 01: Graph Data Structures, Modularity, Registry** - Weighted graph, modularity Q, NodeRegistry — COMPLETE
-- [ ] **Phase 02: Interface + Louvain Core** - CommunityDetector interface, LouvainDetector with all edge-case guards
+- [x] **Phase 02: Interface + Louvain Core** - CommunityDetector interface, LouvainDetector with all edge-case guards (completed 2026-03-29)
 - [ ] **Phase 03: Leiden Implementation** - LeidenDetector with refinement phase and connected-community guarantee
 - [ ] **Phase 04: Performance Hardening + Benchmark Fixtures** - <100ms target verified, Football/Polbooks fixtures, race-free
 
@@ -43,7 +43,7 @@ Plans:
 
 Plans:
 - [x] 02-01: detector.go (CommunityDetector interface, CommunityResult, LouvainOptions, LeidenOptions)
-- [ ] 02-02: louvain.go + louvain_state.go (Phase 1 local move, Phase 2 supergraph, convergence, edge-case guards)
+- [x] 02-02: louvain.go + louvain_state.go (Phase 1 local move, Phase 2 supergraph, convergence, edge-case guards)
 
 ### Phase 03: Leiden Implementation
 **Goal**: `LeidenDetector` produces connected communities with NMI accuracy equal to or better than Louvain on standard graphs
@@ -81,6 +81,6 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 01. Graph Data Structures, Modularity, Registry | 3/3 | Complete | 2026-03-29 |
-| 02. Interface + Louvain Core | 1/2 | In Progress|  |
+| 02. Interface + Louvain Core | 2/2 | Complete   | 2026-03-29 |
 | 03. Leiden Implementation | 0/1 | Not started | - |
 | 04. Performance Hardening + Benchmark Fixtures | 0/2 | Not started | - |
