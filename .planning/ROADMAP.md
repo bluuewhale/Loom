@@ -42,7 +42,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: detector.go (CommunityDetector interface, CommunityResult, LouvainOptions, LeidenOptions)
+- [x] 02-01: detector.go (CommunityDetector interface, CommunityResult, LouvainOptions, LeidenOptions)
 - [ ] 02-02: louvain.go + louvain_state.go (Phase 1 local move, Phase 2 supergraph, convergence, edge-case guards)
 
 ### Phase 03: Leiden Implementation
@@ -81,6 +81,6 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 01. Graph Data Structures, Modularity, Registry | 3/3 | Complete | 2026-03-29 |
-| 02. Interface + Louvain Core | 0/2 | Not started | - |
+| 02. Interface + Louvain Core | 1/2 | In Progress|  |
 | 03. Leiden Implementation | 0/1 | Not started | - |
 | 04. Performance Hardening + Benchmark Fixtures | 0/2 | Not started | - |
