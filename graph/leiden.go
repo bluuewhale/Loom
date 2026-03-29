@@ -1,6 +1,9 @@
 package graph
 
-import "slices"
+import (
+	"math"
+	"slices"
+)
 
 // Detect runs the Leiden community detection algorithm on graph g.
 // Leiden improves on Louvain by guaranteeing internally-connected communities:
@@ -64,7 +67,7 @@ func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 
 	// Best-partition tracking: retain the highest-Q partition found so far
 	// to guard against degenerate convergence on later passes.
-	bestQ := -1.0
+	bestQ := math.Inf(-1)
 	bestNodeMapping := make(map[NodeID]NodeID, len(origNodes))
 	for _, n := range origNodes {
 		bestNodeMapping[n] = n
@@ -83,12 +86,14 @@ func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 			commStr:       state.commStr,
 			neighborBuf:   state.neighborBuf,
 			neighborDirty: state.neighborDirty,
-			candidateBuf:  make([]int, 0, 64),
+			candidateBuf:  state.candidateBuf,
 			rng:           state.rng,
 		}
 		moves := phase1(currentGraph, ls, resolution, currentGraph.TotalWeight())
 		state.partition = ls.partition
 		state.commStr = ls.commStr
+		state.neighborDirty = ls.neighborDirty
+		state.candidateBuf = ls.candidateBuf
 		totalPasses++
 		totalMoves += moves
 

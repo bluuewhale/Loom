@@ -1,6 +1,9 @@
 package graph
 
-import "slices"
+import (
+	"math"
+	"slices"
+)
 
 // Detect runs the Louvain community detection algorithm on graph g.
 // It returns ErrDirectedNotSupported for directed graphs.
@@ -64,7 +67,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 
 	// Best-partition tracking: retain the highest-Q partition found so far
 	// to guard against degenerate convergence on later passes.
-	bestQ := -1.0
+	bestQ := math.Inf(-1)
 	bestNodeMapping := make(map[NodeID]NodeID, len(origNodes))
 	for _, n := range origNodes {
 		bestNodeMapping[n] = n

@@ -15,6 +15,7 @@ type leidenState struct {
 	commStr          map[int]float64    // community ID -> sum of node strengths (cached)
 	neighborBuf      map[NodeID]float64 // reusable buffer for neighbor weight accumulation
 	neighborDirty    []NodeID           // dirty-list: keys written to neighborBuf this iteration
+	candidateBuf     []int              // reusable buffer for candidate communities
 	rng              *rand.Rand         // per-run RNG for node shuffle
 }
 
@@ -27,6 +28,7 @@ var leidenStatePool = sync.Pool{
 			commStr:          make(map[int]float64),
 			neighborBuf:      make(map[NodeID]float64),
 			neighborDirty:    make([]NodeID, 0, 64),
+			candidateBuf:     make([]int, 0, 64),
 		}
 	},
 }
@@ -53,6 +55,7 @@ func (st *leidenState) reset(g *Graph, seed int64) {
 	clear(st.commStr)
 	clear(st.neighborBuf)
 	st.neighborDirty = st.neighborDirty[:0]
+	st.candidateBuf = st.candidateBuf[:0]
 
 	// Re-seed RNG. Always create a fresh rand.New to ensure identical number
 	// generation to newLeidenState; st.rng.Seed skips internal state setup.
@@ -102,6 +105,7 @@ func newLeidenState(g *Graph, seed int64) *leidenState {
 		commStr:          commStr,
 		neighborBuf:      make(map[NodeID]float64),
 		neighborDirty:    make([]NodeID, 0, 64),
+		candidateBuf:     make([]int, 0, 64),
 		rng:              rand.New(src),
 	}
 }
