@@ -46,7 +46,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 **Plans:** 1 plan
 
 Plans:
-- [ ] 01-01-PLAN.md — NumRuns multi-run 구현 + 테스트 업데이트 및 stability 테스트 추가
+- [x] 01-01-PLAN.md — NumRuns multi-run 구현 + 테스트 업데이트 및 stability 테스트 추가
 
 ### Phase 2: 문서화 — GoDoc 예시 확충 및 GraphRAG 실전 예제 추가
 
