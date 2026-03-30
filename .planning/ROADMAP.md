@@ -37,3 +37,33 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 03: Leiden Implementation | v1.0 | 1/1 | Complete | 2026-03-29 |
 | 04: Performance Hardening | v1.0 | 2/2 | Complete | 2026-03-29 |
 | 05: Warm Start | v1.1 | 2/2 | Complete | 2026-03-30 |
+
+### Phase 1: Leiden NMI 안정성 — seed 의존성 문제 해결 및 알고리즘 수렴 보장 강화
+
+**Goal:** LeidenOptions에 NumRuns 멀티런 전략을 추가하여 Seed=0 모드에서 NMI 품질 안정성 확보
+**Requirements**: LEIDEN-NMI-01, LEIDEN-NMI-02, LEIDEN-NMI-03
+**Depends on:** Phase 0
+**Plans:** 1 plan
+
+Plans:
+- [ ] 01-01-PLAN.md — NumRuns multi-run 구현 + 테스트 업데이트 및 stability 테스트 추가
+
+### Phase 2: 문서화 — GoDoc 예시 확충 및 GraphRAG 실전 예제 추가
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 1
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 2 to break down)
+
+### Phase 3: 벤치마크 비교 — Python networkx 대비 성능 비교표 작성 (채택 논거)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 2
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 3 to break down)
