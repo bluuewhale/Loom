@@ -54,12 +54,41 @@ func generateBA(n, m int, seed int64) *Graph {
 	return g
 }
 
+// bench1K is the shared 1K-node BA graph for 1K benchmarks.
+// Initialized once at package load; all benchmarks share the same pointer (read-only).
+var bench1K *Graph
+
 // bench10K is the shared 10K-node BA graph for all benchmarks.
 // Initialized once at package load; all benchmarks share the same pointer (read-only).
 var bench10K *Graph
 
 func init() {
+	bench1K = generateBA(1_000, 5, 42)
 	bench10K = generateBA(10_000, 5, 42)
+}
+
+// BenchmarkLouvain1K measures Louvain on a 1K-node Barabasi-Albert graph.
+// Used for Go vs Python NetworkX comparison (Python Louvain on 1K: ~63ms).
+func BenchmarkLouvain1K(b *testing.B) {
+	det := NewLouvain(LouvainOptions{Seed: 1})
+	det.Detect(bench1K) // warmup: populate sync.Pool
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		det.Detect(bench1K)
+	}
+}
+
+// BenchmarkLeiden1K measures Leiden on a 1K-node Barabasi-Albert graph.
+// Used for Go vs Python NetworkX comparison.
+func BenchmarkLeiden1K(b *testing.B) {
+	det := NewLeiden(LeidenOptions{Seed: 1})
+	det.Detect(bench1K) // warmup: populate sync.Pool
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		det.Detect(bench1K)
+	}
 }
 
 // BenchmarkLouvain10K measures Louvain on a 10K-node Barabasi-Albert graph.
@@ -77,7 +106,7 @@ func BenchmarkLouvain10K(b *testing.B) {
 // BenchmarkLeiden10K measures Leiden on a 10K-node Barabasi-Albert graph.
 // Target: < 100ms/op. Run with -benchmem to see alloc counts.
 func BenchmarkLeiden10K(b *testing.B) {
-	det := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1})
+	det := NewLeiden(LeidenOptions{Seed: 1})
 	det.Detect(bench10K) // warmup: populate sync.Pool
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -128,7 +157,7 @@ func BenchmarkLouvainWarmStart(b *testing.B) {
 // Target: warm ns/op <= 50% of BenchmarkLeiden10K ns/op.
 func BenchmarkLeidenWarmStart(b *testing.B) {
 	// Setup: cold detect to get prior partition
-	det := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1})
+	det := NewLeiden(LeidenOptions{Seed: 1})
 	coldResult, err := det.Detect(bench10K)
 	if err != nil {
 		b.Fatalf("cold detect: %v", err)
@@ -138,7 +167,7 @@ func BenchmarkLeidenWarmStart(b *testing.B) {
 	perturbed := perturbGraph(bench10K, 100, 100, 42)
 
 	// Warm detector
-	warmDet := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1, InitialPartition: coldResult.Partition})
+	warmDet := NewLeiden(LeidenOptions{Seed: 1, InitialPartition: coldResult.Partition})
 	warmDet.Detect(perturbed) // warmup: populate sync.Pool
 
 	b.ResetTimer()
@@ -246,7 +275,7 @@ func TestConcurrentDetect(t *testing.T) {
 		go func(g *Graph, idx int) {
 			defer wg.Done()
 			detL := NewLouvain(LouvainOptions{Seed: int64(idx + 1)})
-			detLd := NewLeiden(LeidenOptions{Seed: int64(idx + 1), NumRuns: 1})
+			detLd := NewLeiden(LeidenOptions{Seed: int64(idx + 1)})
 			for j := 0; j < 10; j++ {
 				_, err := detL.Detect(g)
 				if err != nil {

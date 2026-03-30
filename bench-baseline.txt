@@ -1,5 +1,27 @@
 goos: darwin
 goarch: arm64
+pkg: github.com/bluuewhale/loom/graph
+cpu: Apple M4
+BenchmarkLouvain1K-10    	    1093	   5437302 ns/op	 2330819 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10    	    1022	   5486713 ns/op	 2331562 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10    	    1092	   5555996 ns/op	 2331219 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10    	    1117	   5427081 ns/op	 2330518 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10    	    1105	   5421838 ns/op	 2332638 B/op	    5217 allocs/op
+PASS
+ok  	github.com/bluuewhale/loom/graph	32.699s
+goos: darwin
+goarch: arm64
+pkg: github.com/bluuewhale/loom/graph
+cpu: Apple M4
+BenchmarkLeiden1K-10    	    1018	   5758121 ns/op	 2581981 B/op	    7249 allocs/op
+BenchmarkLeiden1K-10    	    1036	   5766014 ns/op	 2581712 B/op	    7249 allocs/op
+BenchmarkLeiden1K-10    	     985	   5729336 ns/op	 2581698 B/op	    7248 allocs/op
+BenchmarkLeiden1K-10    	    1034	   5851941 ns/op	 2582050 B/op	    7249 allocs/op
+BenchmarkLeiden1K-10    	    1087	   5734492 ns/op	 2582151 B/op	    7249 allocs/op
+PASS
+ok  	github.com/bluuewhale/loom/graph	33.320s
+goos: darwin
+goarch: arm64
 pkg: community-detection/graph
 cpu: Apple M4
 BenchmarkLouvain10K-10           	      24	  50046896 ns/op	18622992 B/op	   48773 allocs/op
