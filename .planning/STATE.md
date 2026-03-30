@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Online Community Detection
-status: complete
-stopped_at: v1.1 milestone complete — archived 2026-03-30
+milestone: v1.2
+milestone_name: Overlapping Community Detection
+status: in_progress
+stopped_at: "Completed 07-01-PLAN.md — buildEgoNet, buildPersonaGraph, mapPersonasToOriginal helpers"
 last_updated: "2026-03-30T00:00:00.000Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 7
+  completed_plans: 1
+  percent: 14
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 05
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-30 - Completed quick task 260330-jq7: warm-start 테스트 누락 사항 추가
+Phase: 07
+Plan: 01 complete
+Status: Plan 01 complete — ready for Plan 02
+Last activity: 2026-03-30 - Completed 07-01: buildEgoNet, buildPersonaGraph, mapPersonasToOriginal helpers
 
-Progress: [████████████] 100% (Phase 05 complete, 2/2 plans done)
+Progress: [██░░░░░░░░░░] 14% (Phase 07 in progress, 1/7 plans done)
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [████████████] 100% (Phase 05 complete, 2/2 pl
 | Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
 | Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
+| Phase 07-persona-graph-infrastructure P01 | 4min | 1 task | 2 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,9 @@ Progress: [████████████] 100% (Phase 05 complete, 2/2 pl
 - [Phase 05-warm-start]: perturbGraph uses rebuild strategy (not RemoveEdge) — Graph has no RemoveEdge; collect canonical edges, mark nRemove for deletion, rebuild, add nAdd random edges
 - [Phase 05-warm-start]: Quality tests assert Q(warm) >= Q(cold_perturbed) not Q(cold_original) — topology changed so original Q is wrong baseline
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
+- [Phase 07-persona-graph-infrastructure P01]: PersonaIDs allocated from maxNodeID+1 upward — guarantees zero collision with original NodeID space
+- [Phase 07-persona-graph-infrastructure P01]: Edge wiring uses cross-ego-net lookup: persona of u determined by community of v in G_u, persona of v determined by community of u in G_v (matches Ego Splitting paper Section 2.2)
+- [Phase 07-persona-graph-infrastructure P01]: Fallback to community 0 when neighbor absent from ego-net partition — handles bridge nodes without dropping edges
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T02:58:43Z
-Stopped at: Completed 05-02-PLAN.md — warm-start correctness tests and benchmarks
+Last session: 2026-03-30T00:00:00Z
+Stopped at: Completed 07-01-PLAN.md — persona graph infrastructure helpers
 Resume file: None
