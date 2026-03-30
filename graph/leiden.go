@@ -77,8 +77,14 @@ func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 	state := acquireLeidenState(currentGraph, seed)
 	defer releaseLeidenState(state)
 
+	firstPass := true
 	for {
-		state.reset(currentGraph, seed)
+		if firstPass {
+			state.reset(currentGraph, seed, d.opts.InitialPartition)
+			firstPass = false
+		} else {
+			state.reset(currentGraph, seed, nil)
+		}
 
 		// Phase 1: local move — reuse Louvain phase1 via louvainState wrapper.
 		ls := &louvainState{
