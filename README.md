@@ -106,6 +106,7 @@ type LeidenOptions struct {
     MaxIterations int
     Tolerance     float64
     Resolution    float64
+    NumRuns       int // multi-run best-Q selection (default 3 when Seed=0)
 }
 ```
 
@@ -154,7 +155,7 @@ Validated on standard benchmark graphs:
 
 | Dataset | Nodes | Edges | Louvain NMI | Leiden NMI |
 |---------|-------|-------|-------------|------------|
-| Karate Club | 34 | 78 | 0.83 | 0.716 |
+| Karate Club | 34 | 78 | 0.83 | 0.72 |
 | Political Books | 105 | 441 | 1.000 | 1.000 |
 | College Football | 115 | 613 | 1.000 | 1.000 |
 
