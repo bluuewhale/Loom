@@ -27,10 +27,11 @@ type CommunityResult struct {
 //   - MaxPasses 0 -> unlimited (converge via tolerance)
 //   - Tolerance 0.0 -> 1e-7
 type LouvainOptions struct {
-	Resolution float64
-	Seed       int64
-	MaxPasses  int
-	Tolerance  float64
+	Resolution       float64
+	Seed             int64
+	MaxPasses        int
+	Tolerance        float64
+	InitialPartition map[NodeID]int // nil = cold start (default)
 }
 
 // LeidenOptions configures the Leiden algorithm.
@@ -40,10 +41,11 @@ type LouvainOptions struct {
 //   - MaxIterations 0 -> unlimited
 //   - Tolerance 0.0 -> 1e-7
 type LeidenOptions struct {
-	Resolution    float64
-	Seed          int64
-	MaxIterations int
-	Tolerance     float64
+	Resolution       float64
+	Seed             int64
+	MaxIterations    int
+	Tolerance        float64
+	InitialPartition map[NodeID]int // nil = cold start (default)
 }
 
 // louvainDetector implements CommunityDetector using the Louvain algorithm.
