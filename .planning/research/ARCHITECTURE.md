@@ -1,207 +1,379 @@
-# Architecture Patterns: Community Detection in Go
+# Architecture Patterns: Ego Splitting Framework Integration
 
-**Domain:** High-performance graph community detection (Louvain + Leiden)
-**Researched:** 2026-03-29
-**Overall confidence:** HIGH (stdlib patterns), MEDIUM (algorithm-specific optimizations)
+**Domain:** Overlapping community detection via ego-splitting (Google, 2017) integrated into existing Go `package graph`
+**Researched:** 2026-03-30
+**Confidence:** HIGH (existing codebase, algorithmic paper) | MEDIUM (persona graph data structure trade-offs)
 
 ---
 
-## Recommended Architecture
+## Context: What Already Exists
 
-### Package Structure: Stay in `package graph`
-
-**Decision: Do NOT create sub-packages for Louvain/Leiden.**
-
-Rationale:
-- The existing codebase is a single `package graph` with zero external deps. Splitting creates import ceremony (`graph/louvain`, `graph/leiden`) with no benefit at this scale.
-- `dominikbraun/graph` (the canonical Go graph library) uses a single-package approach for the same reason.
-- The `CommunityDetector` interface, both algorithm structs, and all helper types should live in `graph/`.
-- Only `graph/testdata/` remains a separate package (already established pattern).
-
-**File layout:**
+The v1.0/v1.1 architecture is already implemented and must not change in any breaking way:
 
 ```
 graph/
-  graph.go          — existing: Graph, NodeID, Edge
-  modularity.go     — existing: ComputeModularity*
-  registry.go       — existing: NodeRegistry
-  detector.go       — NEW: CommunityDetector interface, Options, Result types
-  louvain.go        — NEW: LouvainDetector struct + Detect method
-  leiden.go         — NEW: LeidenDetector struct + Detect method
-  louvain_state.go  — NEW: internal phase state (unexported)
-  leiden_state.go   — NEW: internal phase state (unexported)
+  graph.go          — Graph, NodeID, Edge (adjacency list, weighted, dir/undir)
+  modularity.go     — ComputeModularity, ComputeModularityWeighted
+  registry.go       — NodeRegistry (string <-> NodeID)
+  detector.go       — CommunityDetector interface, CommunityResult, LouvainOptions, LeidenOptions
+  louvain.go        — louvainDetector.Detect, phase1, buildSupergraph, normalizePartition
+  louvain_state.go  — louvainState, sync.Pool acquire/release, reset (warm-start support)
+  leiden.go         — leidenDetector.Detect, refinePartition
+  leiden_state.go   — leidenState, sync.Pool acquire/release, reset (warm-start support)
   testdata/
-    karate.go       — existing
-    fixtures.go     — NEW: larger benchmark graphs (LFR, synthetic)
+    karate.go       — 34-node fixture
+    football.go     — 115-node fixture
+    polbooks.go     — 105-node fixture
+```
+
+Key invariants to preserve:
+- `CommunityDetector` interface signature: `Detect(g *Graph) (CommunityResult, error)` — **unchanged**
+- `LouvainOptions` / `LeidenOptions` — **unchanged**
+- `louvainState` / `leidenState` pool pattern — **unchanged** (ego splitter creates its own internal instances)
+- All existing tests pass without modification
+
+---
+
+## New Architecture: Ego Splitting Layer
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Caller (library user)                            │
+│  detector := NewEgoSplitting(NewLouvain(opts))                       │
+│  result, err := detector.Detect(g)  // OverlappingCommunityResult   │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │ OverlappingCommunityDetector.Detect(*Graph)
+┌──────────────────────────▼──────────────────────────────────────────┐
+│                  egoSplittingDetector  (ego_splitting.go)            │
+│                                                                      │
+│  Algorithm 1: buildEgoNets(g)                                        │
+│    └─> for each node v: extract ego-net subgraph                    │
+│    └─> inner.Detect(egoNet) -> local partition per v                │
+│                                                                      │
+│  Algorithm 2: buildPersonaGraph(g, egoPartitions)                   │
+│    └─> persona graph: *Graph with synthetic persona NodeIDs          │
+│    └─> personaMap: PersonaID -> (originalNodeID, localCommID)        │
+│                                                                      │
+│  Algorithm 3: inner.Detect(personaGraph) -> persona partition        │
+│    └─> mapPersonasToOriginal(personaPartition, personaMap)           │
+│    └─> produce OverlappingCommunityResult                            │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │ CommunityDetector.Detect(*Graph)
+                           │ (called N+1 times total: N ego-nets + 1 persona graph)
+┌──────────────────────────▼──────────────────────────────────────────┐
+│              Existing CommunityDetector (Louvain / Leiden)           │
+│              louvainDetector.Detect  /  leidenDetector.Detect        │
+│              — unchanged, no modification needed —                   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### New Files
+
+| File | Contents | Status |
+|------|----------|--------|
+| `graph/overlapping_detector.go` | `OverlappingCommunityDetector` interface, `OverlappingCommunityResult`, `EgoSplittingOptions` | **NEW** |
+| `graph/ego_splitting.go` | `egoSplittingDetector` struct, `Detect` method (Algorithms 1-3) | **NEW** |
+| `graph/persona.go` | `personaMap` type, `buildPersonaGraph`, `mapPersonasToOriginal` | **NEW** |
+| `graph/ego_splitting_test.go` | Unit + integration tests, NMI validation | **NEW** |
+
+### Modified Files
+
+| File | Change | Risk |
+|------|--------|------|
+| `graph/detector.go` | None — only additive files needed | Zero |
+| `graph/graph.go` | None | Zero |
+| `graph/testdata/` | Possibly add ground-truth overlapping communities for NMI | LOW (additive only) |
+
+---
+
+## Interface and Type Definitions
+
+### `overlapping_detector.go`
+
+```go
+package graph
+
+// OverlappingCommunityDetector detects communities where a single node
+// may belong to multiple communities simultaneously.
+// Implementations must be safe for concurrent use on distinct *Graph instances.
+type OverlappingCommunityDetector interface {
+    Detect(g *Graph) (OverlappingCommunityResult, error)
+}
+
+// OverlappingCommunityResult holds the output of an overlapping detection run.
+type OverlappingCommunityResult struct {
+    // Communities is the primary output: each element is the set of NodeIDs
+    // that belong to community i.  A NodeID may appear in multiple communities.
+    Communities [][]NodeID
+
+    // NodeCommunities is the inverse index: node -> sorted list of community IDs.
+    // Derived from Communities; provided for O(1) per-node lookup.
+    NodeCommunities map[NodeID][]int
+}
+
+// EgoSplittingOptions configures the EgoSplitting detector.
+type EgoSplittingOptions struct {
+    // Inner is the CommunityDetector used for both ego-net detection (Algorithm 1)
+    // and persona-graph detection (Algorithm 3).  Required; no default.
+    Inner CommunityDetector
+
+    // MinEgoNetSize is the minimum number of neighbors a node must have for
+    // its ego-net to be processed.  Nodes below this threshold are assigned
+    // as a singleton community.  Default (0) treated as 1.
+    MinEgoNetSize int
+}
+
+// NewEgoSplitting returns an OverlappingCommunityDetector using the
+// Ego Splitting Framework (Epasto et al., Google 2017).
+func NewEgoSplitting(opts EgoSplittingOptions) OverlappingCommunityDetector {
+    return &egoSplittingDetector{opts: opts}
+}
+```
+
+**Design rationale for `OverlappingCommunityResult`:**
+- `Communities [][]NodeID` is the canonical representation in the paper and matches how NMI is computed against ground-truth sets. Callers iterating by community (the common GraphRAG pattern) get O(1) per community.
+- `NodeCommunities map[NodeID][]int` is derived at construction time and enables O(1) "what communities does node X belong to?" — required for the persona-to-original mapping step and useful for callers.
+- Deliberately NOT `map[NodeID][]int` as the sole field: the inverse form is harder to enumerate communities from, and ground-truth NMI requires community-set representation.
+
+---
+
+## Persona Graph Data Structure
+
+### Decision: Reuse `*Graph` with Synthetic PersonaIDs
+
+The persona graph is a standard weighted undirected graph — the same shape as the original graph but with nodes replaced by persona copies. Reusing `*Graph` is correct because:
+
+1. `phase1` / `buildSupergraph` / `refinePartition` all operate on `*Graph` — the inner `CommunityDetector.Detect(*Graph)` call on the persona graph requires exactly a `*Graph`.
+2. No new graph type is needed. The persona graph uses `NodeID` values in a new numeric range that does not overlap with original NodeIDs.
+3. `Graph.Subgraph` already exists and is used for ego-net extraction.
+
+### PersonaID Allocation
+
+```
+Original node v has NodeID = v (e.g., 0..N-1).
+Persona nodes start at NodeID(N) and are allocated contiguously.
+
+personaBase = NodeID(len(g.Nodes()))   // first persona NodeID
+```
+
+Each original node v gets one persona per local community detected in its ego-net. If v's ego-net yields k communities, v gets k persona nodes.
+
+### `personaMap` — the Bridge Between Layers
+
+```go
+// persona.go
+
+// personaEntry records what original node and local community a persona represents.
+type personaEntry struct {
+    Original  NodeID // original node in g
+    LocalComm int    // community ID within v's ego-net partition
+}
+
+// personaMap maps PersonaID -> personaEntry.
+// The inverse (original node -> []PersonaID) is also stored for edge wiring.
+type personaMap struct {
+    // forward: personaID -> (original, localComm)
+    entries []personaEntry // indexed by (personaID - base)
+
+    // inverse: originalNodeID -> list of personaIDs assigned to that node
+    // Used in buildPersonaGraph to wire persona-graph edges.
+    byOriginal map[NodeID][]NodeID
+
+    base NodeID // first persona NodeID (= original node count)
+}
+```
+
+This structure is an internal implementation detail inside `persona.go`. It is not exported. The persona graph and the personaMap are built together in `buildPersonaGraph` and consumed immediately in the same `Detect` call — no lifetime issue.
+
+---
+
+## Algorithm Implementation Map
+
+### Algorithm 1: Ego-Net Construction and Local Detection
+
+```
+func buildEgoNets(g *Graph, inner CommunityDetector, minSize int) map[NodeID]CommunityResult
+
+For each node v in g:
+  1. neighbors := g.Neighbors(v)   — O(deg(v))
+  2. if len(neighbors) < minSize: egoPartitions[v] = singleton; continue
+  3. egoNet := g.Subgraph(neighborIDs(neighbors))  — reuses existing Subgraph method
+     NOTE: ego-net is neighbors-only (excludes v itself), matching Algorithm 1 in paper
+  4. result, err := inner.Detect(egoNet)
+  5. egoPartitions[v] = result
+```
+
+Key detail: The paper's Algorithm 1 applies community detection to the *neighborhood* of v (ego-net, excluding v itself). The resulting partition determines how many personas v gets — one per community found in its neighborhood.
+
+### Algorithm 2: Persona Graph Construction
+
+```
+func buildPersonaGraph(g *Graph, egoPartitions map[NodeID]CommunityResult,
+                        minSize int) (*Graph, *personaMap)
+
+1. Allocate personaMap with base = NodeID(g.NodeCount())
+2. For each node v:
+   a. If ego-net had 0 or 1 communities: assign single persona PersonaID(v)
+      (degenerate: persona = original, no splitting needed)
+   b. Else: assign one PersonaID per distinct community in egoPartitions[v]
+   c. Record in personaMap.byOriginal[v]
+
+3. Build persona graph (undirected, same weights as g):
+   For each edge (u, v, w) in g:
+     For each pair of personas (pu, pv) where:
+       pu ∈ personaMap.byOriginal[u]  AND
+       pv ∈ personaMap.byOriginal[v]  AND
+       u and v are in the SAME local community of EACH OTHER's ego-net:
+         personaGraph.AddEdge(pu, pv, w)
+```
+
+The edge-wiring condition is the core of the paper: edge (u,v) goes to persona pair (pu, pv) only when u and v co-appear in the same local community in both u's ego-net and v's ego-net. This implements the "consistent assignment" principle.
+
+**Implementation note:** To check co-membership efficiently, store a lookup:
+
+```go
+// For ego-net of u: commOfVInU[v] = community ID of v in u's ego-net partition
+// (only defined for v in u's neighborhood)
+commInEgoNet := make(map[NodeID]map[NodeID]int, g.NodeCount())
+// commInEgoNet[u][v] = local comm of v in u's ego-net
+```
+
+This is O(sum of ego-net sizes) = O(N * avg_degree) in space, which is the same as the graph itself.
+
+### Algorithm 3: Persona Graph Detection and Result Recovery
+
+```
+func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, error)
+
+1. egoPartitions := buildEgoNets(g, d.opts.Inner, minSize)
+2. personaGraph, pm := buildPersonaGraph(g, egoPartitions, minSize)
+3. personaResult, err := d.opts.Inner.Detect(personaGraph)
+4. result := mapPersonasToOriginal(personaResult.Partition, pm)
+5. return result, nil
+```
+
+`mapPersonasToOriginal` groups persona nodes by their global community, then for each global community collects the set of original nodes whose personas appear in it. Each such set is one overlapping community.
+
+---
+
+## Data Flow: Complete Call Path
+
+```
+Detect(g *Graph)
+    │
+    ├─ buildEgoNets(g, inner, minSize)
+    │    ├─ for v in g.Nodes():
+    │    │    egoNet = g.Subgraph(neighbors(v))   [*Graph reused]
+    │    │    inner.Detect(egoNet)                [CommunityDetector, existing]
+    │    │    → egoPartitions[v] = CommunityResult
+    │    └─ return map[NodeID]CommunityResult
+    │
+    ├─ buildPersonaGraph(g, egoPartitions, minSize)
+    │    ├─ allocate personaMap (personaID → original, localComm)
+    │    ├─ NewGraph(false)                       [*Graph reused]
+    │    ├─ wire edges via co-membership check
+    │    └─ return (*Graph, *personaMap)
+    │
+    ├─ inner.Detect(personaGraph)                 [CommunityDetector, existing]
+    │    → personaResult CommunityResult
+    │
+    └─ mapPersonasToOriginal(personaResult.Partition, pm)
+         ├─ group personas by global community ID
+         ├─ for each group: collect original NodeIDs (dedup)
+         ├─ build Communities [][]NodeID
+         ├─ build NodeCommunities map[NodeID][]int
+         └─ return OverlappingCommunityResult
 ```
 
 ---
 
-## CommunityDetector Interface
+## File-by-File Integration Points
 
-```go
-// detector.go
+### `overlapping_detector.go` — New, zero deps on other new files
 
-type Partition map[NodeID]int
+Exports: `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, `NewEgoSplitting`
+Imports (within package): `CommunityDetector`, `NodeID` (from `graph.go`, `detector.go`)
+No breaking changes. Purely additive.
 
-type DetectOptions struct {
-    Resolution  float64 // gamma parameter; 1.0 = standard modularity
-    MaxPasses   int     // 0 = run until convergence
-    Seed        int64   // 0 = non-deterministic
-}
+### `persona.go` — New, internal only
 
-type CommunityDetector interface {
-    Detect(g *Graph, opts DetectOptions) (Partition, error)
-}
-```
+Exports: nothing (all unexported)
+Types: `personaEntry`, `personaMap`
+Functions: `buildPersonaGraph`, `mapPersonasToOriginal`
+Imports: `graph.go` (`Graph`, `NodeID`, `Edge`), `detector.go` (`CommunityResult`)
+Used by: `ego_splitting.go` only
 
-**Why `(Partition, error)` not just `Partition`:**
-- Algorithms can legitimately fail (e.g., degenerate graph, infinite loop guard). Returning error is idiomatic Go and matches the existing `(value, bool)` two-value idiom in `NodeRegistry`.
-- `Partition` is a type alias over `map[NodeID]int` — zero overhead, compatible with existing `ComputeModularity`.
+### `ego_splitting.go` — New, orchestrates the algorithm
 
----
+Exports: nothing (struct is unexported; constructor `NewEgoSplitting` is in `overlapping_detector.go`)
+Types: `egoSplittingDetector`
+Functions: `buildEgoNets`, `(d *egoSplittingDetector).Detect`
+Imports: all within `package graph`
 
-## Internal Data Structures
+### `ego_splitting_test.go` — New
 
-### Phase 1 State: `louvainState`
-
-The hot path in Louvain phase 1 is the delta-modularity gain calculation: for each node, sum edge weights to each neighboring community, then evaluate `ΔQ = [k_i,in / m] - [Σtot * k_i / (2m²)]`.
-
-```go
-// louvain_state.go (unexported)
-
-type communityID = int
-
-type louvainState struct {
-    // community assignment: node → community
-    // flat slice indexed by NodeID — O(1) access, cache-friendly vs map
-    assignment []communityID
-
-    // per-community total internal weight (Σ_in)
-    internalWeight []float64
-
-    // per-community total degree (Σ_tot = sum of all edge weights for nodes in community)
-    totalDegree []float64
-
-    // node degree cache: avoids recomputing g.Strength() in inner loop
-    nodeDegree []float64
-
-    // neighbor community accumulator: reused per-node scratch buffer
-    // maps communityID → sum of weights from current node to that community
-    // allocated once per Detect call, reset per node via a "generation" trick or explicit zero
-    neighborWeightBuf []float64
-    neighborCommunityBuf []communityID // which community IDs were touched (for zeroing)
-
-    totalWeight float64 // 2m — cached once
-    numNodes    int
-}
-```
-
-**Key allocation decisions:**
-
-1. **`assignment []communityID` not `map[NodeID]communityID`** — NodeIDs in the existing `Graph` are dense integers (auto-created on `AddEdge`). A flat slice gives O(1) indexed access and is cache-line friendly. For a 10K-node graph this is 80 KB (10K × int64) vs potentially 640+ KB for a map with load factor overhead.
-
-2. **`neighborWeightBuf []float64` pre-sized to `numNodes`** — The per-node inner loop accumulates edge weights by community. Using a flat slice indexed by communityID (same size as `numNodes` since communities ≤ nodes) and a companion `neighborCommunityBuf` slice to track which indices were touched allows O(1) reset (zero only touched entries) rather than allocating a fresh `map` per node. This eliminates the single biggest allocation hotspot in naive Louvain.
-
-3. **`nodeDegree []float64` cached once** — `g.Strength(node)` iterates adjacency; caching before phase 1 loops converts O(N²) adjacency traversals to O(N) lookups.
-
-### Phase 2 State: Supergraph Compression
-
-Phase 2 collapses each community to a supernode and builds a new `*Graph` where edge weight = sum of cross-community edges.
-
-```go
-// louvain_state.go
-
-// buildSupergraph returns a new *Graph where each node represents one community.
-// communityMap maps old communityID → new NodeID in supergraph.
-func buildSupergraph(g *Graph, state *louvainState) (*Graph, []communityID) {
-    // 1. Assign new NodeIDs to unique communities (compact, 0-based)
-    //    Use state.assignment scan — O(N), produces communityMap []int
-    // 2. Create supergraph := NewGraph(g.directed)
-    // 3. Iterate all edges in g; for each edge (u,v,w):
-    //    cu = state.assignment[u], cv = state.assignment[v]
-    //    if cu != cv: supergraph.AddEdge(communityMap[cu], communityMap[cv], w)
-    //    else:        accumulate as self-loop (internal weight, not added as edge)
-    // 4. Reset state.assignment to identity mapping on supergraph node IDs
-    return supergraph, communityMap
-}
-```
-
-**Why reuse `*Graph` for the supergraph rather than a custom struct:**
-- `*Graph` already supports weighted edges and the `Neighbors`/`Strength` API that phase 1 depends on. Creating a bespoke `superGraph` type would duplicate this logic.
-- The supergraph at level L typically has far fewer nodes than level 0 (Karate: 34 → 2-4 communities after one pass). Memory cost is negligible.
-- The hierarchical result (full dendrogram) can be reconstructed from the sequence of `communityMap` slices if needed by a future phase.
-
-### Leiden Additional State: Refined Partition
-
-Leiden adds a refinement phase between phase 1 and phase 2. It requires a second partition array:
-
-```go
-type leidenState struct {
-    louvainState                   // embed base state
-    refinedAssignment []communityID // partition after refinement (used for supergraph)
-    // queue of nodes whose neighborhood changed — Leiden visits only these after first pass
-    dirtyQueue []NodeID
-    dirtySet   []bool // O(1) membership test; same length as numNodes
-}
-```
-
-The `dirtyQueue`/`dirtySet` pair is the key Leiden efficiency improvement over Louvain: after the initial full-graph pass, only enqueue nodes whose community assignment changed. This cuts repeated full-scan work on large sparse graphs.
+Tests: unit tests per algorithm step, integration tests on Karate/Football/Polbooks, NMI validation, benchmark, race test
 
 ---
 
 ## Concurrency Model
 
-**Decision: Caller-owned goroutines — no internal worker pool.**
+The ego-splitting Detect method follows the same pattern as Louvain/Leiden:
 
-The use case is "many small graphs in parallel" (real-time GraphRAG queries). The caller already has concurrency control (HTTP handler goroutines, a pipeline stage, etc.). The right model is:
+- `egoSplittingDetector` is stateless — only `EgoSplittingOptions` (immutable config) is on the struct.
+- All mutable state is stack-local or heap-allocated per `Detect` call.
+- The `inner.Detect` calls (on ego-nets) are sequential per the paper's algorithm. Opportunistic parallelism across ego-nets is possible in a future optimization but is out of scope for v1.2.
+- `go test -race` must pass: no goroutines are spawned inside `Detect`.
 
-```go
-// Detect is safe to call concurrently on different *Graph instances.
-// Each call allocates its own louvainState; no shared mutable state.
-func (l *LouvainDetector) Detect(g *Graph, opts DetectOptions) (Partition, error) { ... }
-```
+**Why no ego-net parallelism in v1.2:**
+Ego-nets for a 10K-node graph with average degree 20 produce ~10K small subgraph Detect calls averaging ~20 nodes each. Goroutine overhead (~2µs per goroutine) would dominate these sub-microsecond Detect calls. Parallelism only pays off when inner Detect is slow (>1ms), which happens for larger ego-nets. The 200-300ms total budget is achievable sequentially.
 
-**Rules:**
-1. **`Detect` is stateless on the receiver** — `LouvainDetector` holds only immutable config (default options). All mutable phase state lives in a `louvainState` allocated per `Detect` call.
-2. **`*Graph` is read-only during `Detect`** — the algorithm reads edges via `g.Neighbors`/`g.Strength` but never mutates `g`. Document this contract: concurrent `Detect` calls on the same `*Graph` are safe IFF the caller does not mutate the graph concurrently.
-3. **No internal goroutines spawned by `Detect`** — parallelizing within a single Detect call adds synchronization overhead that dominates for small graphs (< 50K nodes). The caller parallelizes across graphs.
-4. **`sync.Pool` for `louvainState`** — allocating/zeroing the state slices (5× O(N) slices) costs ~microseconds for 10K nodes. A `sync.Pool` amortizes this across repeated calls:
-
-```go
-var louvainStatePool = sync.Pool{
-    New: func() any { return &louvainState{} },
-}
-
-func (l *LouvainDetector) Detect(g *Graph, opts DetectOptions) (Partition, error) {
-    st := louvainStatePool.Get().(*louvainState)
-    st.init(g)           // resize slices if needed, zero contents
-    defer func() {
-        st.reset()       // clear slice contents but keep backing arrays
-        louvainStatePool.Put(st)
-    }()
-    // ...
-}
-```
-
-`st.init` uses `st.assignment = st.assignment[:numNodes]` (reslice if capacity sufficient, reallocate only if graph grew). This avoids allocation on the hot path for same-size or smaller graphs.
-
-**What NOT to do:**
-- Do not use a channel-based worker pool inside `Detect` — the overhead is ~1µs per goroutine handoff, which is significant for 10K-node graphs targeting < 100ms total.
-- Do not hold any lock on `*Graph` inside `Detect` — read-only access is inherently safe for concurrent reads.
-- Do not store phase state in `LouvainDetector` fields — makes the struct non-reentrant.
+**sync.Pool interaction:**
+The inner `CommunityDetector` reuses `louvainStatePool` / `leidenStatePool`. These pools are goroutine-safe and work correctly with the sequential ego-net loop — each inner `Detect` call acquires and releases from the pool independently. No changes needed to pool logic.
 
 ---
 
-## Allocation Optimization Summary
+## Recommended Build Order
 
-| Hotspot | Naive Approach | Optimized Approach | Savings |
-|---------|---------------|-------------------|---------|
-| Per-node neighbor accumulator | `make(map[communityID]float64)` per node | Pre-sized `[]float64` + dirty list, reuse per node | Eliminates N map allocs per pass |
-| Phase state slices | Allocate in each `Detect` call | `sync.Pool` of `*louvainState`; reslice if capacity ok | Eliminates 5 allocs per call |
-| Node degree cache | Call `g.Strength(n)` in inner loop | Cache `[]float64` once before phase 1 | O(N) vs O(N²) adjacency traversals |
-| Supergraph edges | `map[NodeID]map[NodeID]float64` | Iterate edges once, use `AddEdge` with accumulation | One pass, no intermediate map |
-| Partition result | New `map[NodeID]int` per pass | Reuse `[]int` internally, convert to `map` once at return | N allocs → 1 alloc per final result |
+Phases should be ordered by dependency, with each phase leaving the package in a passing-tests state.
+
+```
+Phase 1: Types and Interfaces
+  - overlapping_detector.go: OverlappingCommunityDetector, OverlappingCommunityResult, EgoSplittingOptions, NewEgoSplitting stub
+  - Confirms: package compiles, no breaks to existing tests
+
+Phase 2: Persona Graph
+  - persona.go: personaEntry, personaMap, buildPersonaGraph, mapPersonasToOriginal
+  - Unit tests for persona construction on small hand-crafted graphs
+  - Confirms: persona node allocation correct, edge wiring correct
+
+Phase 3: Ego-Net Construction (Algorithm 1)
+  - ego_splitting.go: buildEgoNets function
+  - Unit tests: ego-net extraction returns correct subgraph per node
+  - Confirms: Subgraph reuse works, inner.Detect called correctly
+
+Phase 4: Full Detect (Algorithms 2+3) + Integration
+  - ego_splitting.go: egoSplittingDetector.Detect (full pipeline)
+  - ego_splitting_test.go: Karate/Football/Polbooks integration tests
+  - Confirms: end-to-end result is non-empty, NMI >= threshold
+
+Phase 5: Accuracy Validation and Benchmarks
+  - NMI measurement against ground-truth overlapping communities
+  - Benchmark against 10K synthetic graph: target 200-300ms
+  - go test -race pass
+
+Phase 6: Edge Cases
+  - Empty graph, single-node graph, disconnected graph, star graph
+  - Nodes with no ego-net (degree 0), nodes where all neighbors form one community
+```
+
+**Dependency chain:**
+- Phase 2 (persona) depends on Phase 1 (types) — personaMap references `CommunityResult`
+- Phase 3 (ego-net) depends on Phase 1 — calls `inner.Detect` returning `CommunityResult`
+- Phase 4 (full Detect) depends on Phases 2 and 3
+- Phases 5-6 depend on Phase 4
 
 ---
 
@@ -209,49 +381,70 @@ func (l *LouvainDetector) Detect(g *Graph, opts DetectOptions) (Partition, error
 
 | Concern | 1K nodes | 10K nodes | 100K nodes |
 |---------|----------|-----------|------------|
-| Phase 1 pass time | < 1ms | < 50ms (target) | ~500ms (acceptable) |
-| State memory | ~400 KB | ~4 MB | ~40 MB |
-| Supergraph nodes after 1 pass | ~50 | ~500 | ~5K |
-| Concurrent calls | goroutine-safe by design | goroutine-safe | goroutine-safe |
-| sync.Pool benefit | Low (small allocs) | Medium | High (large slice reuse) |
+| Ego-net Detect calls | ~1K calls × tiny graphs | ~10K calls × small graphs | ~100K calls — sequential bottleneck |
+| Persona graph node count | up to ~3-5x original | up to ~3-5x original | up to ~3-5x original |
+| Persona graph edge count | similar order to original | similar order to original | similar order |
+| Total time budget | < 30ms | 200-300ms (target) | ~3-5s (out of scope) |
+| Memory (persona graph) | small | ~3-5x graph memory | out of scope |
 
-For 100K+ node graphs, consider a CSR (Compressed Sparse Row) adjacency representation instead of `map[NodeID][]Edge`. However, this requires changing the core `Graph` type — out of scope for this milestone. The current `map`-based adjacency is acceptable for the 10K-node target.
+For 100K+ nodes, ego-net parallelism (goroutine pool over the N inner Detect calls) becomes attractive. This is a clean future optimization — the `buildEgoNets` signature is already separable enough to parallelize without changing the interface.
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Global Partition Lock
-**What:** Using a `sync.Mutex` on a shared partition map across goroutines
-**Why bad:** False sharing; contention for every node move destroys parallelism
-**Instead:** Each `Detect` call owns its `louvainState` — no sharing, no locks
+### Anti-Pattern 1: New Graph Type for Persona Graph
 
-### Anti-Pattern 2: Recursive Supergraph Allocation
-**What:** Rebuilding the full `louvainState` from scratch for each hierarchical level
-**Instead:** `st.reinit(supergraph)` — resize slices in-place, avoid reallocation if capacity allows
+**What people do:** Define a `PersonaGraph` struct to "make clear" what it holds.
+**Why it's wrong:** The inner `CommunityDetector.Detect` requires `*Graph`. A new type forces conversion. No benefit — persona nodes are just NodeIDs in a different numeric range.
+**Instead:** Use `*Graph` directly, document the NodeID range convention.
 
-### Anti-Pattern 3: Map for Neighbor Accumulation
-**What:** `neighborWeights := make(map[int]float64)` inside the node-move inner loop
-**Why bad:** For a hub node with 1K neighbors, this allocates a 1K-entry map per node per pass — O(N × passes) total allocations
-**Instead:** Pre-sized `[]float64` with a dirty-index list as described above
+### Anti-Pattern 2: Storing Persona Mappings Inside Graph
 
-### Anti-Pattern 4: Sub-package Split Too Early
-**What:** `graph/louvain` and `graph/leiden` as separate packages
-**Why bad:** Requires exporting `louvainState`, `supergraph helpers`, etc., bloating the public API surface
-**Instead:** Stay in `package graph`; keep state types unexported
+**What people do:** Add a `personaOf map[NodeID]NodeID` field to `Graph` or encode it in node weights.
+**Why it's wrong:** Pollutes the general-purpose `Graph` type with algorithm-specific state. Creates a maintenance burden for every future algorithm.
+**Instead:** Keep `personaMap` purely in `persona.go`, scoped to the lifetime of one `Detect` call.
+
+### Anti-Pattern 3: Merging OverlappingCommunityDetector into CommunityDetector
+
+**What people do:** Add `DetectOverlapping` to the existing `CommunityDetector` interface, or change the return type.
+**Why it's wrong:** Breaking change. All existing implementations (Louvain, Leiden) would need to add a no-op method. The two detection paradigms have different result shapes.
+**Instead:** Separate `OverlappingCommunityDetector` interface. Both interfaces coexist in `detector.go` / `overlapping_detector.go`. The ego splitter satisfies `OverlappingCommunityDetector`; Louvain/Leiden satisfy `CommunityDetector`.
+
+### Anti-Pattern 4: Using NodeID(0..N-1) Overlap for Personas
+
+**What people do:** Re-use original NodeIDs for personas with some offset computed per-node, leading to collision risk.
+**Why it's wrong:** If original graph has nodes 0..N-1, personas starting at any value < N collide. Off-by-one errors are silent.
+**Instead:** `personaBase = NodeID(g.NodeCount())` — personas occupy `[N, N+P)` where P = total persona count. Simple, collision-free, easy to document.
+
+### Anti-Pattern 5: Exporting `personaMap`
+
+**What people do:** Export the persona-to-original mapping in `OverlappingCommunityResult` for "debugging".
+**Why it's wrong:** Exposes internal algorithm structure as public API. Future algorithm changes (e.g. hierarchical ego splitting) would require breaking API changes.
+**Instead:** `OverlappingCommunityResult` exposes only what callers need: `Communities [][]NodeID` and `NodeCommunities map[NodeID][]int`. The persona mapping is an implementation detail.
+
+---
+
+## Integration Points Summary
+
+| Integration Point | What Connects | Contract |
+|------------------|---------------|----------|
+| `NewEgoSplitting(opts)` receives `CommunityDetector` | Caller wires inner algorithm | Any `CommunityDetector` (Louvain, Leiden, future) works |
+| `inner.Detect(egoNet *Graph)` | ego_splitting.go → louvain.go / leiden.go | Read-only graph; returns `CommunityResult` |
+| `inner.Detect(personaGraph *Graph)` | ego_splitting.go → louvain.go / leiden.go | Same contract; persona graph is a valid `*Graph` |
+| `g.Subgraph(nodeIDs)` | ego_splitting.go → graph.go | Already implemented; ego-net extraction |
+| `g.Neighbors(v)` | ego_splitting.go → graph.go | Read-only; used to enumerate ego-net members |
+| `louvainStatePool` / `leidenStatePool` | unchanged; inner Detect calls acquire/release | No modification; pool is per-Detect-call scoped |
 
 ---
 
 ## Sources
 
-- [Louvain method — Wikipedia](https://en.wikipedia.org/wiki/Louvain_method) — algorithm phase definitions
-- [From Louvain to Leiden (Traag et al.)](https://www.nature.com/articles/s41598-019-41695-z) — Leiden refinement phase, dirty queue optimization (HIGH confidence)
-- [GVE-Louvain: Fast Louvain in Shared Memory](https://arxiv.org/abs/2312.04876) — multicore implementation patterns, neighbor accumulator structure (MEDIUM confidence — abstract only)
-- [Go sync.Pool mechanics — VictoriaMetrics](https://victoriametrics.com/blog/go-sync-pool/) — Pool reuse patterns (HIGH confidence)
-- [Go Performance Optimization 2026](https://reintech.io/blog/go-performance-optimization-guide-2026) — worker pool vs per-call goroutine tradeoffs (MEDIUM confidence)
-- [dominikbraun/graph — pkg.go.dev](https://pkg.go.dev/github.com/dominikbraun/graph) — single-package Go graph library precedent (HIGH confidence)
-- [Organizing a Go module — go.dev](https://go.dev/doc/modules/layout) — official package layout guidance (HIGH confidence)
+- Epasto, A., Lattanzi, S., Paes Leme, R. (2017). *Ego-Splitting Framework: from Non-Overlapping to Overlapping Clustering.* KDD 2017. — Algorithm 1-3 definitions, persona graph construction (HIGH confidence — primary source)
+- Existing codebase: `graph/graph.go`, `graph/detector.go`, `graph/louvain.go`, `graph/leiden.go` — interface contracts, Graph API (HIGH confidence — direct code inspection)
+- `graph/louvain_state.go`, `graph/leiden_state.go` — sync.Pool pattern, reset/acquire/release lifecycle (HIGH confidence — direct code inspection)
 
 ---
 
-*Architecture research: 2026-03-29*
+*Architecture research for: Ego Splitting Framework integration into package graph*
+*Researched: 2026-03-30*
