@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Overlapping Community Detection
-status: in_progress
-stopped_at: "Completed 07-01-PLAN.md — buildEgoNet, buildPersonaGraph, mapPersonasToOriginal helpers"
-last_updated: "2026-03-30T00:00:00.000Z"
+milestone: v1.0
+milestone_name: milestone
+status: executing
+stopped_at: v1.2 roadmap created (Phases 06-09)
+last_updated: "2026-03-30T07:45:10.634Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 4
-  completed_phases: 0
-  total_plans: 7
-  completed_plans: 2
-  percent: 29
+  total_phases: 3
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
+  percent: 0
 ---
 
 # Project State
@@ -20,35 +20,38 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 
-**Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Planning next milestone
+**Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
+**Current focus:** Phase 07 — persona-graph-infrastructure
 
 ## Current Position
 
 Phase: 07
-Plan: 02 complete
-Status: Plan 02 complete — ready for Plan 03
-Last activity: 2026-03-30 - Completed 07-02: Karate Club integration test for Algorithm 1+2+3 flow
+Plan: Not started
+Status: Executing Phase 07
+Last activity: 2026-03-30
 
-Progress: [███░░░░░░░░░] 29% (Phase 07 in progress, 2/7 plans done)
+Progress: [____________] 0% (0/4 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 3
-- Average duration: unknown
-- Total execution time: unknown
+- Total plans completed: 7 (across v1.0 + v1.1)
+- Average duration: ~20min/plan
+- Total execution time: ~140min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 3/3 | - | - |
+| 02-interface-louvain-core | 2/2 | 53min | 26min |
+| 03-leiden | 1/1 | 4min | 4min |
+| 04-performance-hardening | 2/2 | 60min | 30min |
+| 05-warm-start | 2/2 | 25min | 12min |
 
 **Recent Trend:**
 
-- Last 5 plans: unknown
+- Last 5 plans: warm-start (10min, 15min), perf-hardening (45min, 15min), leiden (4min)
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -59,8 +62,6 @@ Progress: [███░░░░░░░░░] 29% (Phase 07 in progress, 2/7 
 | Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
 | Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
-| Phase 07-persona-graph-infrastructure P01 | 4min | 1 task | 2 files |
-| Phase 07-persona-graph-infrastructure P02 | 5min | 1 task | 1 file |
 
 ## Accumulated Context
 
@@ -85,15 +86,19 @@ Progress: [███░░░░░░░░░] 29% (Phase 07 in progress, 2/7 
 - [Phase 05-warm-start]: perturbGraph uses rebuild strategy (not RemoveEdge) — Graph has no RemoveEdge; collect canonical edges, mark nRemove for deletion, rebuild, add nAdd random edges
 - [Phase 05-warm-start]: Quality tests assert Q(warm) >= Q(cold_perturbed) not Q(cold_original) — topology changed so original Q is wrong baseline
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
-- [Phase 07-persona-graph-infrastructure P01]: PersonaIDs allocated from maxNodeID+1 upward — guarantees zero collision with original NodeID space
-- [Phase 07-persona-graph-infrastructure P01]: Edge wiring uses cross-ego-net lookup: persona of u determined by community of v in G_u, persona of v determined by community of u in G_v (matches Ego Splitting paper Section 2.2)
-- [Phase 07-persona-graph-infrastructure P01]: Fallback to community 0 when neighbor absent from ego-net partition — handles bridge nodes without dropping edges
-- [Phase 07-persona-graph-infrastructure P02]: Seed=42 for both local and global Louvain in integration test — reproducible overlapping result on every run
-- [Phase 07-persona-graph-infrastructure P02]: Tests went GREEN immediately — 07-01 implementation already satisfies all integration assertions; 67 persona nodes from 34 original confirms non-trivial splitting
+
+### v1.2 Critical Pitfalls (from research)
+
+- [EGO-CRIT-01]: Pass only `neighbors` to `g.Subgraph()`, never append `v` itself — ego node must be excluded from its own ego-net
+- [EGO-CRIT-02]: Use independent monotonic counter for PersonaIDs — never reuse original NodeIDs; assert keys never overlap `[0, g.NodeCount())`
+- [EGO-CRIT-03]: Deduplicate edges before `personaGraph.AddEdge` — undirected iteration visits each edge twice; assert `personaGraph.TotalWeight() == g.TotalWeight()`
+- [EGO-CRIT-05]: Collect ALL community IDs across all of a node's personas in Algorithm 3 — not just the first; assert at least one node has multiple memberships on Karate Club
+- [EGO-CRIT-06]: Do NOT use standard NMI for overlapping validation — use Omega index; standard NMI produces misleadingly high scores on non-overlapping degradation
 
 ### Pending Todos
 
-None yet.
+- Determine Omega index empirical thresholds per fixture (Karate Club, Football, Polbooks) once Phase 08 pipeline produces first results — do not set speculatively
+- Profile `commInEgoNet[u][v]` lookup table memory at high degree during Phase 08 benchmarks (acceptable at avg_degree 20 / N 10K; flag if avg_degree > 100)
 
 ### Quick Tasks Completed
 
@@ -103,11 +108,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 02]: Verify `g.Edges()` API exists in graph.go before writing Louvain (CRIT-02 totalWeight fix depends on unique-edge iteration)
-- [Phase 02]: Directed graph ΔQ formula not yet estimated — flag for Phase 02 planning; may defer directed support to v2
+- [Phase 07]: Algorithm 2 co-membership edge-wiring condition is subtle (paper Section 2.2) — validate `commInEgoNet[u][v]` lookup design against paper before implementing; edge (u,v) wires to persona pair only when u and v co-appear in same local community in BOTH u's and v's ego-nets
+- [Phase 08]: Omega index threshold values for accuracy gates are unknown until first working Detect run — calibrate empirically, do not speculate
 
 ## Session Continuity
 
-Last session: 2026-03-30T00:00:00Z
-Stopped at: Completed 07-02-PLAN.md — Karate Club integration test for Algorithm 1+2+3 flow
+Last session: 2026-03-30
+Stopped at: v1.2 roadmap created (Phases 06-09)
 Resume file: None
+Next action: `/gsd:plan-phase 6`
