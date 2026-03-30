@@ -8,6 +8,19 @@
 
 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
 
+## Current Milestone: v1.2 Overlapping Community Detection
+
+**Goal:** Ego Splitting Framework (Google, 2017) 논문 Algorithm 1~3을 완전 구현하여 loom에 Overlapping Community Detection 추가
+
+**Target features:**
+- Algorithm 1: 각 노드의 ego-net 구성 + 내부 community detection
+- Algorithm 2: Persona graph 생성 (노드 → persona 분할)
+- Algorithm 3: Persona graph에서 community detection → 원본 그래프의 overlapping community로 복원
+- `EgoSplitting` detector — `OverlappingCommunityDetector` 인터페이스, 내부 알고리즘으로 Louvain/Leiden 재사용
+- `OverlappingCommunityResult` 타입 (노드 하나가 다수 커뮤니티 소속)
+- 정확도 검증: Karate Club / Football / Polbooks NMI 기준
+- 성능 목표: 10K 노드 ~200-300ms (persona graph 2-3x 오버헤드 허용)
+
 ## Current State (v1.1 — Phase 05 complete 2026-03-30)
 
 **Warm Start (online community detection) added.** `InitialPartition map[NodeID]int` field on `LouvainOptions` and `LeidenOptions` — pass a prior `CommunityResult.Partition` to seed the algorithm's initial state for faster convergence on incrementally updated graphs. Nil = cold start (zero breaking change).
@@ -55,9 +68,15 @@ graph/
 
 - ✓ Warm start (online community detection) — `InitialPartition` on `LouvainOptions`/`LeidenOptions`, warm-seed `reset()`, `firstPass` guard — validated in Phase 05: Warm Start
 
-### Active
+### Active — v1.2
 
-*(Next milestone TBD — see /gsd:new-milestone)*
+- [ ] `OverlappingCommunityDetector` 인터페이스 및 `OverlappingCommunityResult` 타입 정의
+- [ ] Ego Splitting Framework Algorithm 1: ego-net 구성 + 내부 community detection
+- [ ] Ego Splitting Framework Algorithm 2: persona graph 생성
+- [ ] Ego Splitting Framework Algorithm 3: persona graph detection → overlapping community 복원
+- [ ] concurrent-safe 설계 — `go test -race` 통과
+- [ ] 정확도 검증: 3개 그래프 ground-truth NMI 검증
+- [ ] 10K 노드 기준 ~200-300ms 성능 목표 (벤치마크)
 
 ### Out of Scope
 
@@ -93,4 +112,4 @@ graph/
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-30 after v1.1 milestone complete — Online Community Detection shipped.*
+*Last updated: 2026-03-30 — v1.2 milestone started: Overlapping Community Detection (Ego Splitting Framework).*
