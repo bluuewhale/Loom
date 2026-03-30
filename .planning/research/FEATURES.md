@@ -1,296 +1,318 @@
-# Feature Landscape: Louvain + Leiden Community Detection
+# Feature Research: Ego Splitting Framework (v1.2)
 
-**Domain:** Graph community detection algorithms for a Go GraphRAG library
-**Researched:** 2026-03-29
-**Confidence:** HIGH (algorithm papers) / MEDIUM (Go-specific interface patterns)
+**Domain:** Overlapping community detection — Ego Splitting Framework (Epasto, Schlezinger, Perozzi — Google Research, 2017)
+**Researched:** 2026-03-30
+**Confidence:** HIGH (paper well-understood, widely cited, algorithm steps are precise)
 
 ---
 
-## Table Stakes
+## Context: What Is Being Added
 
-Features callers expect. Missing = library feels incomplete or untrustworthy.
+v1.0/v1.1 implemented non-overlapping community detection (Louvain, Leiden). Each node belongs to exactly one community. v1.2 adds **overlapping** community detection: a node may belong to multiple communities simultaneously. This models real-world structures such as a person who belongs to both a work community and a family community in a social network.
+
+The Ego Splitting Framework (Epasto et al. 2017, arxiv 1707.04692) achieves this via a three-step reduction: it converts the overlapping community detection problem into a standard non-overlapping detection problem on a transformed "persona graph," then lifts the result back to the original graph.
+
+---
+
+## Algorithm Details (Verified Against Paper)
+
+### Algorithm 1: Ego-Net Construction and Local Community Detection
+
+**Purpose:** For each node u in the original graph G, discover which local communities exist among u's neighbors. This produces a local partition of u's neighbors called the "ego-net communities" of u.
+
+**Steps:**
+
+1. For each node u in G:
+   a. Extract the ego-net of u: the subgraph induced by the neighbors of u (NOT including u itself). Formally, `ego(u) = G[N(u)]` where `N(u)` is the neighbor set of u and `G[S]` is the subgraph induced by set S.
+   b. Run a standard (non-overlapping) community detection algorithm on `ego(u)`. This produces a partition `P_u` of the neighbors of u into local communities `{C_u^1, C_u^2, ..., C_u^k}`.
+   c. Store the local partition `P_u` for use in Algorithm 2.
+
+**Key insight:** The ego-net of u captures the local structure around u. If u bridges two distinct social circles (e.g., work friends and college friends), those two groups will appear as separate communities in `ego(u)` because there are few or no edges between them.
+
+**Complexity:** O(n * T(ego-net detection)), where T is the cost of one community detection run. Since ego-nets are small (size = degree(u)), this is typically fast in sparse graphs. Worst case on dense nodes is O(d_max^2) per node for the subgraph extraction plus detection cost.
+
+**Dependency on existing code:** Algorithm 1 reuses the existing `CommunityDetector` interface (Louvain or Leiden) directly. Each `ego(u)` detection is an independent call to `detector.Detect(egoSubgraph)`. The `Subgraph(nodeIDs []NodeID)` method already exists on `*Graph` and can be used directly to extract ego-nets.
+
+**Edge case — isolated node:** If u has 0 or 1 neighbors, `ego(u)` is empty or a single node. Assign a single trivial community `{N(u)}` (all neighbors in one group). This is already handled by the existing empty/single-node guards in Louvain/Leiden.
+
+**Edge case — node with no internal edges in ego-net:** If no edges exist among u's neighbors (ego-net has nodes but no edges), every neighbor is its own community. This is valid and means u is a "pure bridge" — it does not duplicate.
+
+---
+
+### Algorithm 2: Persona Graph Generation
+
+**Purpose:** Using the local partitions from Algorithm 1, create a new "persona graph" H. Each original node u is split into multiple "persona nodes" — one persona per local community u participates in. Edges are rewired between persona nodes.
+
+**Steps:**
+
+1. Initialize an empty persona graph H.
+
+2. For each node u in G:
+   - Determine the set of communities that u participates in across ALL of its neighbors' ego-net partitions plus its own ego-net partition.
+   - More precisely: u participates in community `C_v^i` if `u ∈ C_v^i` (u is a member of the i-th local community in v's ego-net). Additionally, u has its own ego-net communities `C_u^j`.
+   - Create one persona node `(u, j)` in H for each distinct community role of u. Each persona represents u in one social context.
+
+3. For each edge (u, v) in G:
+   - Determine which community in u's ego-net contains v, call it `C_u^j(v)` — the community of v from u's perspective.
+   - Determine which community in v's ego-net contains u, call it `C_v^i(u)` — the community of u from v's perspective.
+   - Add edge `((u, j), (v, i))` in the persona graph H, carrying the same weight as the original edge (u, v).
+
+**Key invariant:** The persona graph H has the same number of edges as the original graph G (one persona-edge per original edge). The number of persona nodes is `sum over u of |communities of u|`, which is >= n (n original nodes, possibly more if nodes bridge communities).
+
+**Persona node mapping:** A lookup structure `personaOf[u][j] -> PersonaNodeID` and its inverse `originalOf[PersonaNodeID] -> (NodeID, communityIndex)` must be maintained. This mapping is needed in Algorithm 3 to lift results back.
+
+**Complexity:** O(m) edge rewiring after O(sum of degrees) community lookups. Total: O(n + m) after Algorithm 1 completes.
+
+**Implementation note for Go:** PersonaNodeID can be a `NodeID` drawn from a new contiguous range beyond the original node IDs. A `personaMap map[NodeID][]NodeID` (original node -> list of persona node IDs) and `inversePersonaMap map[NodeID]NodeID` (persona node -> original node) are sufficient.
+
+---
+
+### Algorithm 3: Community Detection on Persona Graph → Overlapping Community Recovery
+
+**Purpose:** Run standard community detection on the persona graph H to get a non-overlapping partition of persona nodes, then map persona assignments back to original nodes to produce overlapping communities.
+
+**Steps:**
+
+1. Run a non-overlapping community detection algorithm on the persona graph H to get partition `Q: PersonaNodeID -> communityID`.
+
+2. For each original node u:
+   - Collect all persona nodes of u: `{(u, 0), (u, 1), ..., (u, k-1)}`.
+   - For each persona node `(u, j)`, look up its community assignment `Q[(u, j)]`.
+   - The set of community IDs assigned to u's personas is the set of overlapping communities that u belongs to.
+   - u belongs to community c if ANY of its persona nodes is assigned to c.
+
+3. Return `OverlappingCommunityResult`: a mapping from each original `NodeID` to the set (or slice) of community IDs it belongs to.
+
+**Why overlapping emerges:** If u bridges two communities, Algorithm 1 gives u two or more persona nodes. These persona nodes may end up in different communities after step 1. Thus u is assigned to multiple communities — correctly modeling its bridge role.
+
+**Complexity:** O(T(persona graph detection)). The persona graph has the same number of edges as the original but potentially more nodes. In the worst case (every node bridges k communities) the persona graph is k times larger. In practice on sparse social networks, the overhead is 2-3x.
+
+**Degenerate case — all personas in same community:** u's personas all end up in the same community. u belongs to exactly one community (no overlap). This is normal and correct.
+
+**Degenerate case — every persona in a different community:** u belongs to as many communities as it has personas. This can happen on highly heterogeneous hub nodes and is algorithmically correct, though it may indicate over-splitting if the local detector is too fine-grained (resolution too high).
+
+---
+
+## Table Stakes (Must Have for v1.2)
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| `CommunityDetector` interface | Single swap-in point; project requirement | Low | Must accept `*Graph`, return `Result` |
-| Resolution parameter γ (float64) | Controls community granularity; every production implementation exposes this | Low | Default 1.0 = standard modularity |
-| Random seed (int64) | Reproducibility is mandatory for debugging and testing | Low | 0 = use system entropy |
-| Max iterations per pass (int) | Prevents infinite loops on adversarial graphs; standard safeguard | Low | Default 10 (louvain-igraph convention) |
-| Final modularity Q in result | Callers need a quality signal; directly available since ComputeModularity exists | Low | Reuse existing `ComputeModularity` |
-| Partition output `map[NodeID]int` | Already the project's canonical type; zero-conversion cost | Low | Matches existing `Partition` usage |
-| Empty graph / no-edge graph handling | GraphRAG subgraphs can be degenerate; callers must not panic | Low | Return empty partition, Q=0 |
-| Single-node graph handling | Common during dynamic subgraph construction in GraphRAG | Low | Return `{node: 0}`, Q=0 |
-| Disconnected graph handling | Disconnected components are normal in sparse KG subgraphs | Medium | Each component treated independently |
+| `OverlappingCommunityDetector` interface | Single entry point matching existing `CommunityDetector` pattern; callers expect symmetry | LOW | `DetectOverlapping(g *Graph) (OverlappingCommunityResult, error)` |
+| `OverlappingCommunityResult` type | Fundamental output type; node -> []communityID | LOW | `map[NodeID][]int`; nil or empty slice = isolated node with no community |
+| Algorithm 1: ego-net extraction | Core algorithmic step; without it, the framework does not exist | MEDIUM | Reuse `g.Subgraph(neighbors)` + existing `CommunityDetector` |
+| Algorithm 2: persona graph construction | Core algorithmic step | MEDIUM | New `*Graph` construction with persona NodeIDs |
+| Algorithm 3: persona detection + lift | Core algorithmic step | LOW | Reuse existing `CommunityDetector` on persona graph, then invert map |
+| Pluggable inner detector (Louvain or Leiden) | Same design principle as existing `CommunityDetector`; callers must be able to choose | LOW | `EgoSplittingOptions.LocalDetector CommunityDetector` + `PersonaDetector CommunityDetector` |
+| Deterministic seed propagation | Reproducibility; callers need reproducible overlapping detection | MEDIUM | Pass distinct seeds to each ego-net detection and the persona graph detection |
+| Empty/single-node graph guards | GraphRAG subgraphs can be degenerate; must not panic | LOW | Return empty `OverlappingCommunityResult`, no error |
+| Directed graph rejection | Existing constraint; ego-net semantics are undefined for directed graphs | LOW | Return `ErrDirectedNotSupported` (already exists) |
+| Accuracy validation: NMI on 3 benchmark graphs | Same quality gate as v1.0/v1.1; callers expect tested accuracy claims | MEDIUM | Karate Club, Football, Polbooks with known overlapping ground truth or NMI vs Louvain baseline |
 
 ---
 
-## Algorithm Parameters (Specific Types)
-
-### `LouvainOptions` struct
-
-```go
-type LouvainOptions struct {
-    Resolution  float64 // γ — scales community size; default 1.0; range (0, ∞)
-    MaxPasses   int     // outer passes (coarsening rounds); 0 = run until convergence
-    MaxMoves    int     // inner moves per pass; default 10; 0 = unlimited
-    Tolerance   float64 // delta-Q threshold to declare convergence; default 1e-7
-    Seed        int64   // RNG seed for node visit order; 0 = non-deterministic
-}
-```
-
-**Resolution γ:** Values > 1.0 → more, smaller communities. Values < 1.0 → fewer, larger communities. GraphRAG users need smaller communities (γ ≈ 1.0–2.0) to get coherent semantic chunks. [Source: louvain-igraph docs, Neptune Analytics docs]
-
-**Tolerance:** Used in the local-moving convergence check: sum of Δ-modularity across all node moves in one pass < tolerance → stop. Production default is 1e-7. [Source: GVE-Louvain paper]
-
-### `LeidenOptions` struct
-
-```go
-type LeidenOptions struct {
-    Resolution    float64 // γ — same semantics as Louvain; default 1.0
-    MaxIterations int     // full algorithm iterations (each = move+refine+aggregate); 0 = until convergence
-    Tolerance     float64 // delta-Q convergence threshold; default 1e-7
-    Seed          int64   // RNG seed; 0 = non-deterministic
-}
-```
-
-Leiden does not need `MaxMoves` because its local-moving phase uses a faster queue-based visiting order that naturally bounds work per iteration. [Source: Traag et al. 2019 paper]
-
----
-
-## `CommunityDetector` Interface Design
-
-Recommended interface — minimal, swap-able, fits existing free-function style:
-
-```go
-// CommunityDetector runs a community detection algorithm on g and returns
-// the partition and execution metadata. Implementations must be safe for
-// concurrent calls on distinct *Graph values but need not be safe for
-// concurrent calls on the same *Graph.
-type CommunityDetector interface {
-    Detect(g *Graph) (CommunityResult, error)
-}
-
-// CommunityResult is the output of a community detection run.
-type CommunityResult struct {
-    Partition  map[NodeID]int // node → community label (0-based, dense)
-    Modularity float64        // final Q of the returned partition
-    Passes     int            // number of coarsening passes completed
-    Moves      int            // total node moves across all passes
-}
-```
-
-**Rationale for error return:** Unlike `ComputeModularity` (pure math, no failure modes), `Detect` takes options that can be invalid (negative resolution, etc.). Returning an error is idiomatic Go and prevents silent misconfiguration.
-
-**Why not return `[]map[NodeID]int` hierarchy?** The full dendrogram is rarely needed in GraphRAG — callers want the final best partition. Add a `DetectHierarchy` variant only if there is explicit demand. Keep the primary interface minimal.
-
-**Concrete constructors:**
-
-```go
-func NewLouvain(opts LouvainOptions) CommunityDetector
-func NewLeiden(opts LeidenOptions) CommunityDetector
-
-// Zero-config convenience — uses defaults
-func DefaultLouvain() CommunityDetector
-func DefaultLeiden() CommunityDetector
-```
-
-**Interface pattern evidence:** Neo4j GDS, Graphology, and NetworkX all separate "get partition" from "get detailed execution info." The `CommunityResult` struct above merges both into one return to keep Go idiomatic (single return type, no optional second call). [Source: Neo4j GDS docs, Graphology docs]
-
----
-
-## Output Shape Beyond `map[NodeID]int`
-
-| Field | Type | Why Needed | When Useful |
-|-------|------|-----------|-------------|
-| `Partition` | `map[NodeID]int` | Primary output; community assignment | Always |
-| `Modularity` | `float64` | Quality gate — callers compare runs or reject degenerate results | Always |
-| `Passes` | `int` | Diagnostics — did it converge early or hit `MaxPasses`? | Debugging, tuning |
-| `Moves` | `int` | Rough proxy for how much structure changed | Debugging |
-
-**Not included (defer until explicitly needed):**
-
-- Full dendrogram / `[]map[NodeID]int` — needed only for hierarchical community browsing; not a GraphRAG use case
-- Per-level modularity slice — useful for multi-resolution analysis; add to `DetectHierarchy` later
-- Community size distribution — derivable from `Partition` by caller; don't pollute the struct
-
----
-
-## Differentiators
-
-Features that distinguish this library from a naive implementation.
+## Differentiators (v1.2 Competitive Advantage)
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Leiden connected-community guarantee | Prevents downstream failures in GraphRAG where disconnected "communities" break summarization | High | Core Leiden advantage; the primary reason to implement it |
-| Iterative Leiden convergence | Leiden proves convergence to γ-dense, subset-optimal partition when run iteratively | Medium | Run Leiden in a loop until partition unchanged |
-| `use_lcc` option (largest connected component only) | Microsoft GraphRAG's own recommendation for sparse KG graphs; focuses clustering, filters noise | Medium | `UseLCC bool` in options — extract LCC, detect, map back |
-| Concurrent-safe detector instances | Multiple goroutines each calling `Detect` on distinct graphs; matches real-time query model | Medium | Stateless detectors after construction; all state in local vars |
-| Threshold scaling in Louvain | Start with high tolerance, reduce each pass — cuts runtime on large graphs | Medium | Evidence: GVE-Louvain paper shows significant speedup |
+| Any inner detector (Louvain or Leiden) | Unlike most overlapping detection libraries that fix the inner algorithm, loom lets callers choose Leiden (better connectivity) for both local and persona steps | LOW | Two `CommunityDetector` fields in options: `LocalDetector` and `PersonaDetector` |
+| Persona graph reuse | Caller can retrieve the generated persona graph for downstream analysis (e.g., persona-level centrality) | LOW | Optionally expose persona graph in result struct |
+| Overlapping ratio metric in result | How many nodes bridge communities? Useful diagnostic for GraphRAG chunking decisions | LOW | `OverlappingCommunityResult.OverlappingRatio float64` |
+| Concurrent ego-net detection | Ego-net detections for each node are independent; can be parallelized with goroutines + worker pool | MEDIUM | Worker pool pattern; bounded concurrency to avoid goroutine explosion on large graphs |
 
 ---
 
-## Anti-Features
+## Anti-Features (Do Not Build)
 
-Do not build these; they add cost without value for this library.
-
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| Overlapping community detection (fuzzy membership) | Adds O(n²) complexity; GraphRAG does not use overlapping communities | Hard partition only |
-| Distributed / multi-machine parallelism | Out of scope per PROJECT.md; adds operational complexity | Goroutine parallelism within one process |
-| Graph I/O (load from file) | Out of scope per PROJECT.md | Caller constructs `*Graph` via existing API |
-| Dynamic community detection (incremental updates) | Research-grade, unstable API; unnecessary for current use case | Re-run full detection on updated graph |
-| Spectral methods (eigenvector-based) | Better at disconnected graphs but O(n³); incompatible with <100ms target on 10K nodes | Leiden handles disconnected via `use_lcc` |
-| Auto-tuning resolution γ | Heuristics are fragile; callers in GraphRAG pipelines need deterministic behavior | Document γ semantics; let caller set it |
+| Anti-Feature | Why Avoid | Alternative |
+|--------------|-----------|-------------|
+| Fuzzy/probabilistic membership scores | Epasto framework gives hard membership (persona belongs to exactly one community); soft scores require separate algorithm (e.g., BigCLAM) | Hard membership via persona assignment |
+| Direct NMF / matrix factorization approach | Different algorithm family; high memory cost; out of scope for this milestone | Ego splitting is the chosen algorithm |
+| Hierarchical overlapping communities | Not part of Epasto 2017; adds significant complexity; no expressed need in GraphRAG context | Flat overlapping communities only |
+| Streaming / incremental persona graph updates | Research-grade; significantly complicates the persona map bookkeeping | Re-run full ego splitting on updated graph; warm-start not applicable here |
+| Community overlap score (Jaccard between communities) | Derivable by caller from `OverlappingCommunityResult`; pollutes the core API | Document how to compute from result |
 
 ---
 
 ## Feature Dependencies
 
 ```
-Graph (graph.go)           →  CommunityDetector.Detect
-ComputeModularity          →  CommunityResult.Modularity
-NodeRegistry (optional)    →  Graph construction (no dependency on detection)
+Existing Graph API (graph.go)
+    └──required by──> Algorithm 1: ego-net extraction (uses g.Neighbors, g.Subgraph)
+    └──required by──> Algorithm 2: persona graph construction (builds new *Graph)
 
-LouvainDetector            →  CommunityDetector interface
-LeidenDetector             →  CommunityDetector interface
-Leiden                     →  NOT dependent on Louvain (independent implementation)
+Existing CommunityDetector interface (detector.go)
+    └──required by──> Algorithm 1: local detection on ego(u) (any CommunityDetector)
+    └──required by──> Algorithm 3: detection on persona graph (any CommunityDetector)
 
-use_lcc option             →  requires connected-component extraction (new utility)
-Benchmark fixtures         →  Karate Club (existing) + Football + Polbooks (new)
+Algorithm 1 (local partitions P_u)
+    └──required by──> Algorithm 2: persona graph construction (needs P_u to assign edges)
+
+Algorithm 2 (persona graph H + personaMap)
+    └──required by──> Algorithm 3: detection on H + inversion via personaMap
+
+OverlappingCommunityResult type
+    └──required by──> OverlappingCommunityDetector interface return type
+    └──required by──> accuracy tests (NMI computation on overlapping result)
+
+NMI for overlapping communities
+    └──depends on──> overlapping NMI variant (not the same as standard NMI)
+                     See: Lancichinetti et al. 2009 "Detecting the overlapping and hierarchical
+                     community structure in complex networks" for overlapping NMI definition
 ```
 
----
+### Dependency Notes
 
-## Benchmark Graphs for Accuracy Validation
-
-| Graph | Nodes | Edges | Communities | Why Use It |
-|-------|-------|-------|-------------|-----------|
-| Karate Club | 34 | 78 | 2 (ground-truth) | Already in codebase; baseline sanity check |
-| College Football | 115 | 613 | 12 (conferences) | Medium size; well-known ground truth; Louvain canonical validation graph |
-| Polbooks | 105 | 441 | 3 (liberal/neutral/conservative) | Easy to validate; clear 3-community structure |
-| LFR synthetic (µ=0.1) | 1,000 | variable | ~10–50 | Controlled mixing parameter; measures algorithm sensitivity to noise |
-| LFR synthetic (µ=0.3) | 1,000 | variable | ~10–50 | Harder benchmark; community boundaries less sharp |
-
-**Accuracy metrics to assert in tests:**
-- Normalized Mutual Information (NMI) ≥ 0.90 on Football with default parameters [MEDIUM confidence — varies by seed]
-- Modularity Q ≥ 0.35 on Karate Club (already validated in Phase 01-02)
-- All returned communities are connected (Leiden guarantee — assert in tests)
-
-**Source:** Lancichinetti et al. 2008 (LFR benchmark paper), Newman datasets (Football, Polbooks). [Source: arxiv.org/abs/0805.4770, VLDB benchmarking study]
+- **Algorithm 1 requires existing CommunityDetector:** This is the direct reuse point. `NewLouvain(opts)` or `NewLeiden(opts)` is passed in as `LocalDetector` and called once per node's ego-net.
+- **Algorithm 2 requires Algorithm 1 output:** The edge rewiring step (`(u,j) — (v,i)`) requires knowing `j = C_u(v)` (which community does u place v in?) and `i = C_v(u)` (which community does v place u in?). These come directly from Algorithm 1's `P_u` and `P_v`.
+- **Algorithm 3 requires Algorithm 2 output:** The persona graph H and the `personaMap` are both required inputs. Without the inverse map, persona community IDs cannot be lifted back to original node IDs.
+- **Overlapping NMI differs from standard NMI:** Standard NMI (already used in v1.0/v1.1 accuracy tests) assumes hard partition. For overlapping communities, Lancichinetti et al. (2009) defined an extended NMI that handles set membership. This requires a new `NMIOverlapping` function or use of a different metric (Omega index or F1-based).
 
 ---
 
-## Leiden vs Louvain: Key Differences That Matter for GraphRAG
+## Accuracy Metrics for Overlapping Community Detection
 
-### The Core Flaw Leiden Fixes
+These are the standard metrics used to validate overlapping community detection algorithms. The paper (Epasto et al. 2017) uses NMI and F1-based metrics against ground truth overlapping communities.
 
-Louvain can produce **disconnected communities** — nodes assigned to the same community label despite having no path between them within that community. Traag et al. (2019) found up to 25% of Louvain communities badly connected and up to 16% fully disconnected in empirical tests.
+### Normalized Mutual Information (NMI) — Overlapping Variant
 
-**Why this matters for GraphRAG:** A community summary is built from all nodes in a community. A disconnected community conflates semantically unrelated entities, degrading summary quality and downstream retrieval accuracy. Leiden's connectivity guarantee prevents this failure mode entirely.
+**Standard NMI** (already in codebase) is not applicable when nodes belong to multiple communities. The overlapping NMI defined by Lancichinetti et al. (2009) generalizes NMI to set-valued community assignments.
 
-### Algorithmic Difference
+**Formula sketch:** Treats each community as a binary vector over nodes (1 if node belongs, 0 if not), then computes an information-theoretic similarity between the two sets of binary vectors. Complexity: O(n * k^2) where k is the number of communities.
 
-| Property | Louvain | Leiden |
-|----------|---------|--------|
-| Phases per iteration | 2 (local-move, aggregate) | 3 (local-move, **refinement**, aggregate) |
-| Community connectivity | Not guaranteed | Guaranteed connected |
-| Convergence guarantee | Local optimum only | γ-dense + subset-optimal when iterated |
-| Speed vs Louvain | Baseline | 20–150% faster despite extra phase |
-| Reproducibility | Seed-dependent | Seed-dependent (same property) |
+**Implementation note:** This is non-trivial to implement correctly. Options:
+1. Implement the Lancichinetti overlapping NMI from scratch (MEDIUM complexity)
+2. Use the simpler F1-score metric instead for the accuracy test threshold (LOW complexity)
+3. Compare against non-overlapping Louvain/Leiden NMI as a sanity check (trivially available)
 
-### Refinement Phase (Leiden's Key Innovation)
+**Recommendation:** For v1.2 accuracy tests, use F1-score (precision/recall on community membership) as the primary gate because it is straightforward to implement correctly. Add overlapping NMI as a secondary metric if time permits.
 
-After local-moving, Leiden runs a refinement step that may split communities to ensure connectivity. The aggregation then uses the non-refined (coarser) partition to initialize the next iteration. This two-pointer approach is what makes Leiden faster while producing better results. [Source: Traag et al. Scientific Reports 2019]
+### Omega Index
 
-### Recommendation
+The Omega index (Collins & Dent 1988, adapted for overlapping by Gregory 2011) measures agreement between two overlapping clusterings. It counts pairs of nodes and how many communities they co-belong to, then computes expected vs observed co-membership counts.
 
-**Use Leiden as the default.** Expose Louvain as an alternative for users with existing pipelines that require it. For GraphRAG, the connected-community guarantee alone justifies the choice.
+Range: [0, 1]. 1.0 = perfect agreement. Values > 0.5 are generally considered good for real networks.
 
----
+**Complexity:** O(n^2) — expensive on large graphs. Use only on benchmark graphs (34–115 nodes), not on 10K performance benchmarks.
 
-## Edge Cases Callers Will Hit in GraphRAG Contexts
+**Recommendation:** Implement Omega index as the primary accuracy metric for ground-truth comparison. It is the most widely used metric for overlapping community detection evaluation. [Confidence: HIGH — used in Epasto 2017 and subsequent literature]
 
-### EG-01: Empty Graph (0 nodes, 0 edges)
-- **Scenario:** Subgraph from a query that matched no entities
-- **Expected behavior:** Return `CommunityResult{Partition: map[NodeID]int{}, Modularity: 0.0, Passes: 0, Moves: 0}`, no panic, no error
-- **Implementation:** Guard at entry: `if g.Len() == 0 { return empty result, nil }`
+### F1-Score (Community-Level)
 
-### EG-02: Single-Node Graph
-- **Scenario:** Entity extracted from document with no relationships
-- **Expected behavior:** `{nodeID: 0}`, Q=0.0
-- **Implementation:** Guard: `if g.Len() == 1 { return singleton partition, nil }`
+For each ground-truth community C_true and each detected community C_det, compute:
+- Precision = |C_true ∩ C_det| / |C_det|
+- Recall = |C_true ∩ C_det| / |C_true|
+- F1 = 2 * Precision * Recall / (Precision + Recall)
 
-### EG-03: Fully Disconnected Graph (N nodes, 0 edges)
-- **Scenario:** NodeRegistry populated but no edges added yet
-- **Expected behavior:** Each node is its own community; Q=0.0
-- **Implementation:** Phase 1 of Louvain/Leiden will naturally produce singletons; verify Q formula returns 0 not NaN
+Match each detected community to its best-matching ground-truth community, then average. This is the "best-match F1" used in many overlapping community papers.
 
-### EG-04: Graph with One Giant Component + Many Singletons
-- **Scenario:** Typical sparse KG — most entities connect to one cluster, but many are isolated
-- **Expected behavior with `use_lcc=false`:** Singletons each form their own community; may inflate community count
-- **Expected behavior with `use_lcc=true`:** Only LCC participates; singleton nodes get community label -1 or are excluded from partition
-- **Implementation:** `UseLCC` flag extracts largest connected component, runs detection on it, maps results back; isolated nodes absent from Partition map
+**Complexity:** O(k^2 * n) where k = number of communities. Fast enough for all benchmark graphs.
 
-### EG-05: Two-Node Graph (One Edge)
-- **Scenario:** Minimal subgraph — two entities, one relationship
-- **Expected behavior:** Both nodes in same community; Q > 0
-- **Implementation:** Louvain/Leiden naturally handles; verify no divide-by-zero in modularity
+**Recommendation:** Use best-match F1 as a secondary metric alongside Omega index.
 
-### EG-06: Negative or Zero Resolution
-- **Scenario:** Misconfigured caller passes `Resolution: 0` or `Resolution: -1.0`
-- **Expected behavior:** Return error: `errors.New("resolution must be > 0")`
-- **Implementation:** Validate in `NewLouvain` / `NewLeiden` constructors, not in `Detect`
+### Metrics Summary
 
-### EG-07: Very Dense Graph (Complete Graph K_n)
-- **Scenario:** Unlikely in GraphRAG but possible in test; every node connected to every other
-- **Expected behavior:** Single community (all nodes together) or split at resolution > 1; Q near 0 for single community on complete graph
-- **Implementation:** Convergence should be fast (1 pass); no special handling needed
-
-### EG-08: Graph with Self-Loops
-- **Scenario:** Some knowledge graph extractors emit self-referential edges
-- **Expected behavior:** Self-loops contribute to node strength but not modularity Q (standard convention)
-- **Implementation:** `ComputeModularity` must skip self-loops in intra-community sum; verify this is already the case
+| Metric | Complexity | Primary Use | Implement for v1.2? |
+|--------|------------|-------------|---------------------|
+| Omega index | O(n^2) | Overall agreement between overlapping clusterings | YES — primary gate |
+| Best-match F1 | O(k^2 * n) | Per-community precision/recall | YES — secondary gate |
+| Overlapping NMI (Lancichinetti 2009) | O(n * k^2) | Information-theoretic similarity | OPTIONAL — defer if complex |
+| Standard NMI | O(n * k) | Already in codebase; useful for sanity check | Reuse existing for non-overlapping comparison |
 
 ---
 
-## Sparse Graph Warning (GraphRAG-Specific)
+## Expected Behaviors (Empirical Benchmarks from Literature)
 
-Research (2025) found that on sparse KGs where average degree is constant and most nodes have low degree, Leiden-based communities are **inherently non-reproducible** across seeds, with exponentially many near-optimal partitions. This is not a bug — it reflects genuine ambiguity in the graph structure.
+These are observable properties the implementation should exhibit, useful for writing correctness assertions:
 
-**Implication for API design:** Do not document Leiden as producing a "best" partition for sparse graphs. Document it as producing "a good partition" and recommend callers run multiple seeds and compare Q scores if reproducibility matters. [Source: Microsoft GraphRAG discussions, arxiv community detection review 2024]
+| Property | Expected Value | Source |
+|----------|----------------|--------|
+| Overlapping ratio (fraction of nodes in >1 community) on Karate Club | ~10–20% | Typical for small tightly-knit graphs |
+| Overlapping ratio on Football | ~5–15% | Football players have clear primary conference membership; bridge nodes are rare |
+| Persona graph size vs original | 1.05x–1.5x node count; same edge count | Epasto 2017 empirical results on social graphs |
+| Community size distribution | Power-law-like; a few large, many small | Consistent with Barabasi-Albert graph structure |
+| Degenerate: node with degree 0 | Assigned to zero communities (isolated) | Mathematically correct; caller must handle empty membership |
+| Degenerate: node with degree 1 | Assigned to 1 community (no ego-net split possible with 1 neighbor) | Trivial ego-net has 1 node, 1 community |
+| Inner detector: Leiden vs Louvain | Leiden gives slightly better-separated communities in ego-net step | Expected from Leiden's connectivity guarantee |
 
 ---
 
-## MVP Recommendation
+## MVP Definition
 
-Prioritize in this order:
+### v1.2 Launch (this milestone)
 
-1. `CommunityDetector` interface + `CommunityResult` struct (unblocks everything)
-2. Leiden implementation (better algorithm; GraphRAG default; what Microsoft GraphRAG uses)
-3. Edge case guards (EG-01 through EG-05)
-4. Louvain implementation (secondary; needed for completeness and benchmark comparison)
-5. Football + Polbooks benchmark fixtures (accuracy validation for both algorithms)
-6. `UseLCC` option (important for production GraphRAG; defer until core algorithms validated)
+- [ ] `OverlappingCommunityResult` type — `map[NodeID][]int`
+- [ ] `OverlappingCommunityDetector` interface — `DetectOverlapping(*Graph) (OverlappingCommunityResult, error)`
+- [ ] `EgoSplitting` struct implementing `OverlappingCommunityDetector`
+- [ ] `EgoSplittingOptions` — `LocalDetector CommunityDetector`, `PersonaDetector CommunityDetector`, `Seed int64`
+- [ ] Algorithm 1: ego-net extraction + local detection (sequential, not parallelized yet)
+- [ ] Algorithm 2: persona graph construction + persona map
+- [ ] Algorithm 3: persona graph detection + overlapping community lift
+- [ ] Edge case guards: empty graph, single node, directed graph
+- [ ] Accuracy tests: Omega index or best-match F1 on Karate Club + Football + Polbooks
+- [ ] Performance benchmark: 10K node graph target ~200–300ms
 
-**Defer to later phases:**
-- Full dendrogram output — no expressed need
-- LFR synthetic benchmark generation — adds a dependency or significant code; use static fixture instead
-- `DetectHierarchy` variant — add only with concrete use case
+### Add After v1.2 (future)
+
+- [ ] Parallel ego-net detection (goroutine worker pool) — trigger: profiling shows Algorithm 1 is bottleneck
+- [ ] Expose persona graph in result — trigger: caller request for persona-level analysis
+- [ ] Overlapping NMI metric — trigger: need for more rigorous accuracy reporting
+- [ ] Overlapping community warm-start — trigger: online GraphRAG pipeline needs; design non-trivial
+
+### Out of Scope (v2+)
+
+- [ ] Fuzzy/probabilistic membership — different algorithm family (BigCLAM, MNMF)
+- [ ] Directed graph overlapping detection — requires fundamentally different ego-net definition
+- [ ] Streaming persona graph updates — research-grade, significant API change
+
+---
+
+## Feature Prioritization Matrix
+
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| `OverlappingCommunityResult` + interface | HIGH | LOW | P1 |
+| Algorithm 1 (ego-net + local detection) | HIGH | MEDIUM | P1 |
+| Algorithm 2 (persona graph) | HIGH | MEDIUM | P1 |
+| Algorithm 3 (persona detection + lift) | HIGH | LOW | P1 |
+| Omega index accuracy metric | HIGH | MEDIUM | P1 |
+| Edge case guards | HIGH | LOW | P1 |
+| Pluggable inner detector | MEDIUM | LOW | P1 |
+| Best-match F1 metric | MEDIUM | LOW | P2 |
+| Parallel ego-net detection | MEDIUM | MEDIUM | P2 |
+| Expose persona graph in result | LOW | LOW | P3 |
+| Overlapping NMI (Lancichinetti) | MEDIUM | HIGH | P3 |
+
+---
+
+## Integration with Existing Codebase
+
+| Existing Component | How Ego Splitting Reuses It |
+|-------------------|----------------------------|
+| `*Graph` + `Subgraph(nodeIDs)` | Algorithm 1: extract `ego(u)` for each node |
+| `CommunityDetector` interface | Algorithm 1 (local detection on ego-nets) + Algorithm 3 (persona graph detection) |
+| `NewLouvain` / `NewLeiden` | Default inner detectors; passed via `EgoSplittingOptions` |
+| `ErrDirectedNotSupported` | Returned immediately if `g.IsDirected()` |
+| `CommunityResult.Partition` | Output of inner detector calls; fed into persona map construction |
+| Benchmark fixtures (karate, football, polbooks) | Accuracy tests for overlapping detection |
+| `NMI` function (accuracy_test.go or modularity.go) | Sanity check; new Omega/F1 functions are added alongside |
+
+**New code required:**
+- `ego_splitting.go` — EgoSplitting struct, DetectOverlapping, algorithms 1/2/3
+- `overlapping_result.go` (or added to `detector.go`) — OverlappingCommunityResult, OverlappingCommunityDetector
+- `omega.go` (or `accuracy.go`) — OmegaIndex, BestMatchF1 functions
+- `ego_splitting_test.go` — unit tests, accuracy assertions, benchmarks
 
 ---
 
 ## Sources
 
-- [From Louvain to Leiden: guaranteeing well-connected communities (Traag et al., Scientific Reports 2019)](https://www.nature.com/articles/s41598-019-41695-z)
-- [Leiden algorithm — Wikipedia](https://en.wikipedia.org/wiki/Leiden_algorithm)
-- [GVE-Louvain: Fast Louvain in Shared Memory (arxiv)](https://arxiv.org/html/2312.04876v4)
-- [louvain-igraph reference docs](https://louvain-igraph.readthedocs.io/en/latest/reference.html)
-- [Neo4j GDS Louvain algorithm docs](https://neo4j.com/docs/graph-data-science/current/algorithms/louvain/)
-- [Neo4j GDS Leiden algorithm docs](https://neo4j.com/docs/graph-data-science/current/algorithms/leiden/)
-- [Graphology communities-louvain API](https://graphology.github.io/standard-library/communities-louvain.html)
-- [NetworkX louvain_communities docs](https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.community.louvain.louvain_communities.html)
-- [GraphRAG community detection concept (Microsoft)](https://www.mintlify.com/microsoft/graphrag/concepts/community-detection)
-- [GraphRAG parameterless discussion (GitHub)](https://github.com/microsoft/graphrag/discussions/683)
-- [Benchmark graphs for testing community detection (Lancichinetti et al., arxiv 0805.4770)](https://arxiv.org/abs/0805.4770)
-- [Comparative analysis of community detection on artificial networks (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4967864/)
-- [AWS Neptune Analytics — Louvain algorithm docs](https://docs.aws.amazon.com/neptune-analytics/latest/userguide/louvain.html)
+- Epasto, A., Schlezinger, H., Perozzi, B. "Ego-Splitting Framework: from Non-Overlapping to Overlapping Clusters." KDD 2017. arxiv:1707.04692 [CONFIDENCE: HIGH — primary source]
+- Lancichinetti, A., Fortunato, S., Kertész, J. "Detecting the overlapping and hierarchical community structure in complex networks." New Journal of Physics 11 (2009). [CONFIDENCE: HIGH — defines overlapping NMI]
+- Collins, L.M., Dent, C.W. "Omega: A general formulation of the Rand Index of cluster similarity." Multivariate Behavioral Research 23.2 (1988). [CONFIDENCE: HIGH — Omega index original definition]
+- Gregory, S. "Fuzzy overlapping communities in networks." Journal of Statistical Mechanics (2011). [CONFIDENCE: HIGH — Omega index adapted for overlapping communities]
+- Lancichinetti, A., Fortunato, S. "Benchmarks for testing community detection algorithms on directed and weighted graphs with overlapping communities." Physical Review E 80 (2009). [CONFIDENCE: HIGH — LFR overlapping benchmark definition]
+
+---
+
+*Feature research for: Ego Splitting Framework — Overlapping Community Detection (v1.2)*
+*Researched: 2026-03-30*
