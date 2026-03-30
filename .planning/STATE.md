@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-03-30T08:24:24.438Z"
+status: verifying
+stopped_at: "Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests"
+last_updated: "2026-03-30T08:35:26.340Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 08 — full-detect-pipeline-accuracy-performance
+**Current focus:** Phase 09 — edge-cases-and-hardening
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
-Status: Ready to execute
+Phase: 09 (edge-cases-and-hardening) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
 Last activity: 2026-03-30
 
 Progress: [____________] 0% (0/4 phases complete)
@@ -63,6 +63,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
 | Phase 08-full-detect-pipeline-accuracy-performance P02 | 5 min | 2 tasks | 2 files |
+| Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: perturbGraph uses rebuild strategy (not RemoveEdge) — Graph has no RemoveEdge; collect canonical edges, mark nRemove for deletion, rebuild, add nAdd random edges
 - [Phase 05-warm-start]: Quality tests assert Q(warm) >= Q(cold_perturbed) not Q(cold_original) — topology changed so original Q is wrong baseline
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
+- [Phase 09-edge-cases-and-hardening]: ErrEmptyGraph guard placed after IsDirected check — mirrors ErrDirectedNotSupported pattern
+- [Phase 09-edge-cases-and-hardening]: Star topology test asserts persona count <= degree(center) — Louvain assigns each disconnected leaf singleton community, so center gets 5 personas (bounded, not panic)
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -114,7 +117,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-30T08:19:13.934Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-03-30T08:35:21.478Z
+Stopped at: Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests
 Resume file: None
 Next action: `/gsd:plan-phase 6`
