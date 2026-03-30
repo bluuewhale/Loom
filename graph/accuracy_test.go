@@ -105,3 +105,145 @@ func TestLeidenPolbooksNMI(t *testing.T) {
 	t.Logf("Polbooks Leiden: Q=%.4f communities=%d NMI=%.4f",
 		res.Modularity, uniqueCommunities(res.Partition), score)
 }
+
+// TestLouvainWarmStartQuality verifies that warm-start Louvain produces Q >= cold-start Q
+// on perturbed versions of the three benchmark fixtures. (D-09)
+func TestLouvainWarmStartQuality(t *testing.T) {
+	fixtures := []struct {
+		name  string
+		edges [][2]int
+	}{
+		{"KarateClub", testdata.KarateClubEdges},
+		{"Football", testdata.FootballEdges},
+		{"Polbooks", testdata.PolbooksEdges},
+	}
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			g := buildGraph(f.edges)
+			det := NewLouvain(LouvainOptions{Seed: 1})
+
+			// Cold run on original
+			coldResult, err := det.Detect(g)
+			if err != nil {
+				t.Fatalf("cold detect: %v", err)
+			}
+
+			// Perturb graph
+			perturbed := perturbGraph(g, 2, 2, 99)
+
+			// Cold run on perturbed
+			coldPerturbed, err := det.Detect(perturbed)
+			if err != nil {
+				t.Fatalf("cold perturbed detect: %v", err)
+			}
+
+			// Warm run on perturbed
+			warmDet := NewLouvain(LouvainOptions{Seed: 1, InitialPartition: coldResult.Partition})
+			warmResult, err := warmDet.Detect(perturbed)
+			if err != nil {
+				t.Fatalf("warm detect: %v", err)
+			}
+
+			if warmResult.Modularity < coldPerturbed.Modularity-1e-9 {
+				t.Errorf("warm Q=%.4f < cold Q=%.4f", warmResult.Modularity, coldPerturbed.Modularity)
+			}
+			t.Logf("cold Q=%.4f passes=%d, warm Q=%.4f passes=%d",
+				coldPerturbed.Modularity, coldPerturbed.Passes,
+				warmResult.Modularity, warmResult.Passes)
+		})
+	}
+}
+
+// TestLeidenWarmStartQuality verifies that warm-start Leiden produces Q >= cold-start Q
+// on perturbed versions of the three benchmark fixtures. (D-09)
+func TestLeidenWarmStartQuality(t *testing.T) {
+	fixtures := []struct {
+		name  string
+		edges [][2]int
+	}{
+		{"KarateClub", testdata.KarateClubEdges},
+		{"Football", testdata.FootballEdges},
+		{"Polbooks", testdata.PolbooksEdges},
+	}
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			g := buildGraph(f.edges)
+			det := NewLeiden(LeidenOptions{Seed: 2})
+
+			// Cold run on original
+			coldResult, err := det.Detect(g)
+			if err != nil {
+				t.Fatalf("cold detect: %v", err)
+			}
+
+			// Perturb graph
+			perturbed := perturbGraph(g, 2, 2, 99)
+
+			// Cold run on perturbed
+			coldPerturbed, err := det.Detect(perturbed)
+			if err != nil {
+				t.Fatalf("cold perturbed detect: %v", err)
+			}
+
+			// Warm run on perturbed
+			warmDet := NewLeiden(LeidenOptions{Seed: 2, InitialPartition: coldResult.Partition})
+			warmResult, err := warmDet.Detect(perturbed)
+			if err != nil {
+				t.Fatalf("warm detect: %v", err)
+			}
+
+			if warmResult.Modularity < coldPerturbed.Modularity-1e-9 {
+				t.Errorf("warm Q=%.4f < cold Q=%.4f", warmResult.Modularity, coldPerturbed.Modularity)
+			}
+			t.Logf("cold Q=%.4f passes=%d, warm Q=%.4f passes=%d",
+				coldPerturbed.Modularity, coldPerturbed.Passes,
+				warmResult.Modularity, warmResult.Passes)
+		})
+	}
+}
+
+// TestLouvainWarmStartFewerPasses verifies that warm-start Louvain converges in
+// fewer or equal passes vs cold-start on the same unperturbed graph. (D-09)
+func TestLouvainWarmStartFewerPasses(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	det := NewLouvain(LouvainOptions{Seed: 1})
+	coldResult, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("cold detect: %v", err)
+	}
+
+	warmDet := NewLouvain(LouvainOptions{Seed: 1, InitialPartition: coldResult.Partition})
+	warmResult, err := warmDet.Detect(g)
+	if err != nil {
+		t.Fatalf("warm detect: %v", err)
+	}
+
+	if warmResult.Passes > coldResult.Passes {
+		t.Errorf("warm passes=%d > cold passes=%d on unperturbed graph",
+			warmResult.Passes, coldResult.Passes)
+	}
+	t.Logf("cold passes=%d, warm passes=%d", coldResult.Passes, warmResult.Passes)
+}
+
+// TestLeidenWarmStartFewerPasses verifies that warm-start Leiden converges in
+// fewer or equal passes vs cold-start on the same unperturbed graph. (D-09)
+func TestLeidenWarmStartFewerPasses(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	det := NewLeiden(LeidenOptions{Seed: 2})
+	coldResult, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("cold detect: %v", err)
+	}
+
+	warmDet := NewLeiden(LeidenOptions{Seed: 2, InitialPartition: coldResult.Partition})
+	warmResult, err := warmDet.Detect(g)
+	if err != nil {
+		t.Fatalf("warm detect: %v", err)
+	}
+
+	if warmResult.Passes > coldResult.Passes {
+		t.Errorf("warm passes=%d > cold passes=%d on unperturbed graph",
+			warmResult.Passes, coldResult.Passes)
+	}
+	t.Logf("cold passes=%d, warm passes=%d", coldResult.Passes, warmResult.Passes)
+}
