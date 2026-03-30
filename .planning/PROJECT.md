@@ -21,7 +21,9 @@
 - 정확도 검증: Karate Club / Football / Polbooks NMI 기준
 - 성능 목표: 10K 노드 ~200-300ms (persona graph 2-3x 오버헤드 허용)
 
-## Current State (v1.2 — Phase 06 complete 2026-03-30)
+## Current State (v1.2 — Phase 07 complete 2026-03-30)
+
+**Phase 07 complete — Persona Graph Infrastructure implemented.** `buildEgoNet` (Algorithm 1), `buildPersonaGraph` (Algorithm 2), `mapPersonasToOriginal` (Algorithm 3 helper) all in `graph/ego_splitting.go`. Karate Club test confirms 66 personas from 34 nodes with overlapping membership. (Validated in Phase 07)
 
 **Phase 06 complete — OverlappingCommunityDetector interface scaffolded.** `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, and `NewEgoSplitting` stub defined in `graph/ego_splitting.go`. All downstream phases can now code against these types. (Validated in Phase 06: Types and Interfaces)
 
@@ -114,4 +116,4 @@ graph/
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-30 — Phase 06 complete: OverlappingCommunityDetector interface and types scaffolded. Phase 07 next: Persona Graph Infrastructure.*
+*Last updated: 2026-03-30 — Phase 07 complete: Persona Graph Infrastructure (ego-net + persona graph). Phase 08 next: Full Detect Pipeline.*
