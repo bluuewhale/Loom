@@ -10,10 +10,10 @@
 
 ### Core API
 
-- [ ] **EGO-01**: Caller can use `OverlappingCommunityDetector` interface with `Detect(g *Graph) (OverlappingCommunityResult, error)` — distinct from existing `CommunityDetector`, zero breaking changes
-- [ ] **EGO-02**: Caller can access overlapping result as `Communities [][]NodeID` (community-first) and `NodeCommunities map[NodeID][]int` (node-first O(1) lookup) from `OverlappingCommunityResult`
-- [ ] **EGO-03**: Caller can configure `EgoSplittingOptions` with `LocalDetector CommunityDetector`, `GlobalDetector CommunityDetector`, and `Resolution float64` — both detectors default to Louvain if nil
-- [ ] **EGO-07**: Caller can construct an `EgoSplittingDetector` via `NewEgoSplitting(opts EgoSplittingOptions)` that implements `OverlappingCommunityDetector`
+- [x] **EGO-01**: Caller can use `OverlappingCommunityDetector` interface with `Detect(g *Graph) (OverlappingCommunityResult, error)` — distinct from existing `CommunityDetector`, zero breaking changes
+- [x] **EGO-02**: Caller can access overlapping result as `Communities [][]NodeID` (community-first) and `NodeCommunities map[NodeID][]int` (node-first O(1) lookup) from `OverlappingCommunityResult`
+- [x] **EGO-03**: Caller can configure `EgoSplittingOptions` with `LocalDetector CommunityDetector`, `GlobalDetector CommunityDetector`, and `Resolution float64` — both detectors default to Louvain if nil
+- [x] **EGO-07**: Caller can construct an `EgoSplittingDetector` via `NewEgoSplitting(opts EgoSplittingOptions)` that implements `OverlappingCommunityDetector`
 
 ### Algorithm Implementation
 
@@ -63,10 +63,10 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| EGO-01 | Phase 06 | Pending |
-| EGO-02 | Phase 06 | Pending |
-| EGO-03 | Phase 06 | Pending |
-| EGO-07 | Phase 06 | Pending |
+| EGO-01 | Phase 06 | Complete |
+| EGO-02 | Phase 06 | Complete |
+| EGO-03 | Phase 06 | Complete |
+| EGO-07 | Phase 06 | Complete |
 | EGO-04 | Phase 07 | Pending |
 | EGO-05 | Phase 07 | Pending |
 | EGO-06 | Phase 07 | Pending |
