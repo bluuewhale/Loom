@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"community-detection/graph/testdata"
+	"github.com/bluuewhale/loom/graph/testdata"
 )
 
 // buildKarateClubLeiden creates an undirected Karate Club graph.
