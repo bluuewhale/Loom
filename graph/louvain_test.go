@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"community-detection/graph/testdata"
+	"github.com/bluuewhale/loom/graph/testdata"
 )
 
 // buildKarateClubLouvain creates an undirected Karate Club graph.
