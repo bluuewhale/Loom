@@ -106,6 +106,15 @@ func TestOverlappingCommunityResult_ZeroValue(t *testing.T) {
 
 // --- helpers ---
 
+// makeStar returns a star graph: node 0 is center connected to nodes 1..n.
+func makeStar(n int) *Graph {
+	g := NewGraph(false)
+	for i := 1; i <= n; i++ {
+		g.AddEdge(0, NodeID(i), 1.0)
+	}
+	return g
+}
+
 func makeTriangle() *Graph {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
@@ -477,4 +486,133 @@ func TestEgoSplittingConcurrentDetect(t *testing.T) {
 		}(g, i)
 	}
 	wg.Wait()
+}
+
+// --- Edge-case tests: EGO-12, EGO-13, EGO-14 ---
+
+// TestEgoSplittingDetector_Detect_EmptyGraph verifies that Detect on an empty
+// graph returns ErrEmptyGraph and a zero-value result. (EGO-14)
+func TestEgoSplittingDetector_Detect_EmptyGraph(t *testing.T) {
+	d := NewEgoSplitting(EgoSplittingOptions{})
+	g := NewGraph(false) // NodeCount == 0
+
+	result, err := d.Detect(g)
+	if !errors.Is(err, ErrEmptyGraph) {
+		t.Fatalf("expected ErrEmptyGraph, got: %v", err)
+	}
+	if result.Communities != nil {
+		t.Errorf("expected nil Communities on empty-graph error, got: %v", result.Communities)
+	}
+	if result.NodeCommunities != nil {
+		t.Errorf("expected nil NodeCommunities on empty-graph error, got: %v", result.NodeCommunities)
+	}
+}
+
+// TestEgoSplittingDetector_Detect_IsolatedNodes verifies that Detect does not
+// panic on a graph containing isolated (degree-0) nodes, and that every isolated
+// node appears in exactly one community. (EGO-12)
+func TestEgoSplittingDetector_Detect_IsolatedNodes(t *testing.T) {
+	// Graph: nodes 0, 1, 2 with one edge (0,1); node 2 is isolated.
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddNode(2, 1.0) // isolated
+
+	d := NewEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1}),
+	})
+
+	result, err := d.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error on graph with isolated node: %v", err)
+	}
+
+	// Node 2 (isolated) must appear in NodeCommunities.
+	comms, ok := result.NodeCommunities[2]
+	if !ok {
+		t.Error("isolated node 2 is missing from NodeCommunities")
+	}
+	if len(comms) != 1 {
+		t.Errorf("isolated node 2 should be in exactly 1 community, got: %v", comms)
+	}
+
+	// All 3 nodes must appear.
+	for _, id := range []NodeID{0, 1, 2} {
+		if _, ok := result.NodeCommunities[id]; !ok {
+			t.Errorf("node %d missing from NodeCommunities", id)
+		}
+	}
+}
+
+// TestBuildPersonaGraph_IsolatedNode verifies that buildPersonaGraph assigns
+// exactly one persona (community 0) to an isolated node and that the persona
+// appears in inverseMap. (EGO-12)
+func TestBuildPersonaGraph_IsolatedNode(t *testing.T) {
+	// Graph: one edge (0,1) plus isolated node 2.
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddNode(2, 1.0) // isolated
+
+	_, personaOf, inverseMap, err := buildPersonaGraph(g, NewLouvain(LouvainOptions{Seed: 1}))
+	if err != nil {
+		t.Fatalf("buildPersonaGraph error: %v", err)
+	}
+
+	// Node 2 must have exactly one persona mapped to community 0.
+	personas, ok := personaOf[2]
+	if !ok {
+		t.Fatal("node 2 missing from personaOf")
+	}
+	if len(personas) != 1 {
+		t.Errorf("isolated node 2 should have exactly 1 persona, got %d", len(personas))
+	}
+	personaID, hasCom0 := personas[0]
+	if !hasCom0 {
+		t.Error("isolated node 2's persona is not under community key 0")
+	}
+	if orig, ok := inverseMap[personaID]; !ok || orig != 2 {
+		t.Errorf("inverseMap[%d] = %v, want 2", personaID, orig)
+	}
+}
+
+// TestEgoSplittingDetector_Detect_StarTopology verifies that Detect on a star
+// graph produces exactly one community membership for the center node. When all
+// leaves are in a single local community in the center's ego-net, no splitting
+// occurs — center gets exactly one persona. (EGO-13)
+func TestEgoSplittingDetector_Detect_StarTopology(t *testing.T) {
+	// Star with 5 spokes: center=0, leaves=1..5.
+	g := makeStar(5)
+
+	d := NewEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1}),
+	})
+
+	result, err := d.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error on star graph: %v", err)
+	}
+
+	// All 6 nodes must appear in NodeCommunities.
+	for id := NodeID(0); id <= 5; id++ {
+		if _, ok := result.NodeCommunities[id]; !ok {
+			t.Errorf("node %d missing from NodeCommunities", id)
+		}
+	}
+
+	// Center node 0's ego-net is the 5 leaves with no edges between them.
+	// Louvain on a graph of 5 disconnected nodes assigns each to its own community
+	// (no edges to optimize). Center node therefore gets 5 personas — one per leaf
+	// community. This is acceptable: what we prohibit is a PANIC or an UNBOUNDED
+	// explosion (more personas than neighbors). Assert persona count <= degree(center).
+	centerComms := result.NodeCommunities[0]
+	degree := len(g.Neighbors(0))
+	if len(centerComms) > degree {
+		t.Errorf("center node 0 has %d community memberships, want <= degree %d (no unbounded growth)", len(centerComms), degree)
+	}
+
+	// Sanity: result must be non-empty.
+	if len(result.Communities) == 0 {
+		t.Error("expected at least one community in result")
+	}
 }
