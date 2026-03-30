@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"community-detection/graph/testdata"
+	"github.com/bluuewhale/loom/graph/testdata"
 )
 
 // buildKarateClub creates an undirected Karate Club graph from the testdata fixture.

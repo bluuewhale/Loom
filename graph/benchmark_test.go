@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"community-detection/graph/testdata"
+	"github.com/bluuewhale/loom/graph/testdata"
 )
 
 // generateBA builds an undirected Barabasi-Albert preferential attachment graph
