@@ -59,16 +59,36 @@ func TestNewEgoSplitting_PreservesSuppliedDetectors(t *testing.T) {
 	}
 }
 
-// Test 4: Detect stub returns ErrNotImplemented.
-func TestEgoSplittingDetector_Detect_ReturnsErrNotImplemented(t *testing.T) {
+// Test 4: Detect returns ErrDirectedNotSupported for directed graphs.
+func TestEgoSplittingDetector_Detect_DirectedGraphError(t *testing.T) {
 	d := NewEgoSplitting(EgoSplittingOptions{})
-	g := NewGraph(false)
+	g := NewGraph(true) // directed
+	g.AddEdge(0, 1, 1.0)
 	_, err := d.Detect(g)
-	if err == nil {
-		t.Fatal("expected ErrNotImplemented, got nil")
+	if !errors.Is(err, ErrDirectedNotSupported) {
+		t.Fatalf("expected ErrDirectedNotSupported, got: %v", err)
 	}
-	if !errors.Is(err, ErrNotImplemented) {
-		t.Fatalf("expected ErrNotImplemented, got: %v", err)
+}
+
+// Test 4b: Detect on a triangle graph returns a valid result with all nodes.
+func TestEgoSplittingDetector_Detect_Triangle(t *testing.T) {
+	d := NewEgoSplitting(EgoSplittingOptions{})
+	g := makeTriangle()
+	result, err := d.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+	if len(result.Communities) == 0 {
+		t.Error("expected at least one community")
+	}
+	if result.NodeCommunities == nil {
+		t.Error("expected non-nil NodeCommunities")
+	}
+	// All 3 nodes must appear in NodeCommunities.
+	for i := NodeID(0); i <= 2; i++ {
+		if _, ok := result.NodeCommunities[i]; !ok {
+			t.Errorf("node %d missing from NodeCommunities", i)
+		}
 	}
 }
 
