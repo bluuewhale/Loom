@@ -140,12 +140,16 @@ func (r *NodeRegistry) Len() int
 
 ## Performance
 
-Benchmarks run on standard hardware, undirected graphs with random structure:
+Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs. Python: python-louvain 0.16 + networkx 3.6.
 
-| Graph size | Algorithm | Time |
-|------------|-----------|------|
-| 10K nodes  | Louvain   | ~48ms |
-| 10K nodes  | Leiden    | ~57ms |
+| Graph size | Algorithm | Go (loom) | Python (python-louvain) | Speedup |
+|------------|-----------|-----------|-------------------------|---------|
+| 1K nodes   | Louvain   | ~5.4ms    | ~65ms                   | ~12x    |
+| 1K nodes   | Leiden    | ~5.8ms    | N/A¹                    | —       |
+| 10K nodes  | Louvain   | ~50ms     | ~3,700ms                | ~75x    |
+| 10K nodes  | Leiden    | ~57ms     | N/A¹                    | —       |
+
+¹ python-louvain implements Louvain only. Install: `pip install networkx python-louvain`
 
 Both algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
