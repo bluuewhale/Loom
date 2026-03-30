@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Online Community Detection
-status: executing
-stopped_at: Completed 05-01-PLAN.md — warm-start API surface and core seeding logic
-last_updated: "2026-03-30T03:25:00.000Z"
+status: verifying
+stopped_at: Completed 05-02-PLAN.md — warm-start correctness tests and benchmarks
+last_updated: "2026-03-30T02:58:43Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 05 (warm-start) — EXECUTING
+Phase: 05 (warm-start) — COMPLETE
 Plan: 2 of 2
-Status: Plan 01 complete — ready for Plan 02
+Status: Phase complete — ready for verification
 Last activity: 2026-03-30
 
-Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total plans done)
+Progress: [████████████] 100% (Phase 05 complete, 2/2 plans done)
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total pla
 | Phase 04-performance-hardening-benchmark-fixtures P01 | 15min | 2 tasks | 6 files |
 | Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
 | Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
+| Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total pla
 - [Phase 05-warm-start]: InitialPartition passed as reset() parameter only — not stored on state struct — preserves pool safety (pooled state must not hold caller references between Detect calls)
 - [Phase 05-warm-start]: firstPass guard in Detect loop: warm seed applies only on original graph; supergraph passes always cold-reset (supergraph NodeIDs are synthetic)
 - [Phase 05-warm-start]: commStr always rebuilt from g.Strength() in warm-start path — not carried from prior run
+- [Phase 05-warm-start]: perturbGraph uses rebuild strategy (not RemoveEdge) — Graph has no RemoveEdge; collect canonical edges, mark nRemove for deletion, rebuild, add nAdd random edges
+- [Phase 05-warm-start]: Quality tests assert Q(warm) >= Q(cold_perturbed) not Q(cold_original) — topology changed so original Q is wrong baseline
+- [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T03:25:00.000Z
-Stopped at: Completed 05-01-PLAN.md — warm-start API surface and core seeding logic
+Last session: 2026-03-30T02:58:43Z
+Stopped at: Completed 05-02-PLAN.md — warm-start correctness tests and benchmarks
 Resume file: None
