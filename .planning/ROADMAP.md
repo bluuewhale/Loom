@@ -60,10 +60,10 @@ Plans:
 
 ### Phase 3: 벤치마크 비교 — Python networkx 대비 성능 비교표 작성 (채택 논거)
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Go 1K 벤치마크 추가, Python python-louvain 비교 스크립트 작성, README Performance 섹션에 Go vs Python 비교표 추가 (~15x at 1K, ~75x at 10K 속도 우위 표시)
+**Requirements**: BENCH-01, BENCH-02, BENCH-03
 **Depends on:** Phase 2
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 3 to break down)
+- [ ] 03-01-PLAN.md — Go 1K benchmarks + scripts/compare.py + README comparison table
