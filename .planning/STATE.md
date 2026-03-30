@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: verifying
-stopped_at: Completed 04-02-PLAN.md — sync.Pool, benchmarks, benchstat baseline
-last_updated: "2026-03-29T13:40:17.862Z"
-last_activity: 2026-03-29
+milestone: v1.1
+milestone_name: Online Community Detection
+status: executing
+stopped_at: Completed 05-01-PLAN.md — warm-start API surface and core seeding logic
+last_updated: "2026-03-30T03:25:00.000Z"
+last_activity: 2026-03-30
 progress:
-  total_phases: 4
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 20
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 04 — performance-hardening-benchmark-fixtures
+**Current focus:** Phase 05 — warm-start
 
 ## Current Position
 
-Phase: 04 (performance-hardening-benchmark-fixtures) — EXECUTING
+Phase: 05 (warm-start) — EXECUTING
 Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-03-29
+Status: Plan 01 complete — ready for Plan 02
+Last activity: 2026-03-30
 
 Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total plans done)
 
@@ -57,6 +57,7 @@ Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total pla
 | Phase 03 P01 | 4min | 2 tasks | 5 files |
 | Phase 04-performance-hardening-benchmark-fixtures P01 | 15min | 2 tasks | 6 files |
 | Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
+| Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Progress: [██░░░░░░░░] 20% (Phase 01 complete, 3/5 total pla
 - [Phase 04-performance-hardening-benchmark-fixtures]: nmi() and uniqueCommunities() extracted to shared testhelpers_test.go for reuse across accuracy tests
 - [Phase 04-performance-hardening-benchmark-fixtures]: rand.New(src) in reset() ensures identical RNG sequence to original constructor; st.rng.Seed() causes shuffle divergence
 - [Phase 04-performance-hardening-benchmark-fixtures]: bestSuperPartition must be deep-copied under pool reuse; pointer sharing causes state.partition clear to silently destroy saved results
+- [Phase 05-warm-start]: InitialPartition passed as reset() parameter only — not stored on state struct — preserves pool safety (pooled state must not hold caller references between Detect calls)
+- [Phase 05-warm-start]: firstPass guard in Detect loop: warm seed applies only on original graph; supergraph passes always cold-reset (supergraph NodeIDs are synthetic)
+- [Phase 05-warm-start]: commStr always rebuilt from g.Strength() in warm-start path — not carried from prior run
 
 ### Pending Todos
 
@@ -87,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T13:29:55.141Z
-Stopped at: Completed 04-02-PLAN.md — sync.Pool, benchmarks, benchstat baseline
+Last session: 2026-03-30T03:25:00.000Z
+Stopped at: Completed 05-01-PLAN.md — warm-start API surface and core seeding logic
 Resume file: None
