@@ -51,9 +51,86 @@ func NewEgoSplitting(opts EgoSplittingOptions) OverlappingCommunityDetector {
 }
 
 // Detect runs the Ego Splitting algorithm on g and returns overlapping communities.
-// This is a stub that returns ErrNotImplemented until Phase 07-08 provides the implementation.
+// Pipeline: directed-graph guard → buildPersonaGraph (Algorithms 1+2) →
+// GlobalDetector.Detect on persona graph → mapPersonasToOriginal (Algorithm 3) →
+// deduplicate and compact community indices → build result.
 func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, error) {
-	return OverlappingCommunityResult{}, ErrNotImplemented
+	// Guard: directed graphs not supported.
+	if g.IsDirected() {
+		return OverlappingCommunityResult{}, ErrDirectedNotSupported
+	}
+
+	// Step 1: Build persona graph (Algorithms 1 + 2).
+	personaGraph, _, inverseMap, err := buildPersonaGraph(g, d.opts.LocalDetector)
+	if err != nil {
+		return OverlappingCommunityResult{}, err
+	}
+
+	// Step 2: Run global detector on persona graph.
+	globalResult, err := d.opts.GlobalDetector.Detect(personaGraph)
+	if err != nil {
+		return OverlappingCommunityResult{}, err
+	}
+
+	// Step 3: Map persona communities back to original nodes (Algorithm 3).
+	nodeCommunities := mapPersonasToOriginal(globalResult.Partition, inverseMap)
+
+	// Step 4: Deduplicate community IDs per node.
+	// mapPersonasToOriginal can emit duplicate community IDs when multiple
+	// personas of the same original node land in the same global community.
+	for node, comms := range nodeCommunities {
+		seen := make(map[int]struct{}, len(comms))
+		unique := comms[:0]
+		for _, c := range comms {
+			if _, ok := seen[c]; !ok {
+				seen[c] = struct{}{}
+				unique = append(unique, c)
+			}
+		}
+		nodeCommunities[node] = unique
+	}
+
+	// Step 5: Build Communities [][]NodeID from NodeCommunities.
+	// First pass: find max community ID to size the slice.
+	maxComm := -1
+	for _, comms := range nodeCommunities {
+		for _, c := range comms {
+			if c > maxComm {
+				maxComm = c
+			}
+		}
+	}
+
+	communities := make([][]NodeID, maxComm+1)
+	for node, comms := range nodeCommunities {
+		for _, c := range comms {
+			communities[c] = append(communities[c], node)
+		}
+	}
+
+	// Compact: remove empty community slots (global detector may produce sparse IDs).
+	var filtered [][]NodeID
+	commRemap := make(map[int]int) // old index -> new contiguous index
+	for i, members := range communities {
+		if len(members) > 0 {
+			commRemap[i] = len(filtered)
+			filtered = append(filtered, members)
+		}
+	}
+
+	// Remap NodeCommunities indices to match compacted Communities slice.
+	for node, comms := range nodeCommunities {
+		remapped := make([]int, len(comms))
+		for j, c := range comms {
+			remapped[j] = commRemap[c]
+		}
+		nodeCommunities[node] = remapped
+	}
+
+	return OverlappingCommunityResult{
+		Communities:     filtered,
+		NodeCommunities: nodeCommunities,
+	}, nil
 }
 
 // buildEgoNet returns the ego-net of node v: the subgraph induced by v's
