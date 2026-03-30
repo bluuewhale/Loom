@@ -148,6 +148,46 @@ func BenchmarkLeidenWarmStart(b *testing.B) {
 	}
 }
 
+// TestLouvainWarmStartSpeedup enforces that warm-start Louvain is at least 1.2x faster
+// than cold-start on the 10K-node BA graph. Uses testing.Benchmark to measure both
+// BenchmarkLouvain10K and BenchmarkLouvainWarmStart programmatically. (IG-2)
+func TestLouvainWarmStartSpeedup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping speedup test in short mode")
+	}
+	cold := testing.Benchmark(BenchmarkLouvain10K)
+	warm := testing.Benchmark(BenchmarkLouvainWarmStart)
+	if cold.NsPerOp() == 0 || warm.NsPerOp() == 0 {
+		t.Skip("benchmark returned 0 ns/op — too fast to measure")
+	}
+	speedup := float64(cold.NsPerOp()) / float64(warm.NsPerOp())
+	t.Logf("Louvain warm-start speedup: %.2fx (cold=%dns, warm=%dns)",
+		speedup, cold.NsPerOp(), warm.NsPerOp())
+	if speedup < 1.2 {
+		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
+	}
+}
+
+// TestLeidenWarmStartSpeedup enforces that warm-start Leiden is at least 1.2x faster
+// than cold-start on the 10K-node BA graph. Uses testing.Benchmark to measure both
+// BenchmarkLeiden10K and BenchmarkLeidenWarmStart programmatically. (IG-2)
+func TestLeidenWarmStartSpeedup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping speedup test in short mode")
+	}
+	cold := testing.Benchmark(BenchmarkLeiden10K)
+	warm := testing.Benchmark(BenchmarkLeidenWarmStart)
+	if cold.NsPerOp() == 0 || warm.NsPerOp() == 0 {
+		t.Skip("benchmark returned 0 ns/op — too fast to measure")
+	}
+	speedup := float64(cold.NsPerOp()) / float64(warm.NsPerOp())
+	t.Logf("Leiden warm-start speedup: %.2fx (cold=%dns, warm=%dns)",
+		speedup, cold.NsPerOp(), warm.NsPerOp())
+	if speedup < 1.2 {
+		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
+	}
+}
+
 // TestConcurrentDetect verifies that concurrent Detect calls on distinct *Graph
 // instances produce no data races. Run with -race flag to catch violations. (PERF-02)
 func TestConcurrentDetect(t *testing.T) {
