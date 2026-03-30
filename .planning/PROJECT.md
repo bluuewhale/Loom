@@ -21,7 +21,9 @@
 - 정확도 검증: Karate Club / Football / Polbooks NMI 기준
 - 성능 목표: 10K 노드 ~200-300ms (persona graph 2-3x 오버헤드 허용)
 
-## Current State (v1.1 — Phase 05 complete 2026-03-30)
+## Current State (v1.2 — Phase 06 complete 2026-03-30)
+
+**Phase 06 complete — OverlappingCommunityDetector interface scaffolded.** `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, and `NewEgoSplitting` stub defined in `graph/ego_splitting.go`. All downstream phases can now code against these types. (Validated in Phase 06: Types and Interfaces)
 
 **Warm Start (online community detection) added.** `InitialPartition map[NodeID]int` field on `LouvainOptions` and `LeidenOptions` — pass a prior `CommunityResult.Partition` to seed the algorithm's initial state for faster convergence on incrementally updated graphs. Nil = cold start (zero breaking change).
 
@@ -112,4 +114,4 @@ graph/
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-30 — v1.2 milestone started: Overlapping Community Detection (Ego Splitting Framework).*
+*Last updated: 2026-03-30 — Phase 06 complete: OverlappingCommunityDetector interface and types scaffolded. Phase 07 next: Persona Graph Infrastructure.*
