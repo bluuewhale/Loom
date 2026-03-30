@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Overlapping Community Detection
-status: in_progress
-stopped_at: Roadmap created — ready to plan Phase 06
-last_updated: "2026-03-30T00:00:00.000Z"
-last_activity: 2026-03-30
+milestone: v1.0
+milestone_name: milestone
+status: planning
+stopped_at: Completed 06-01-PLAN.md — types and interfaces for ego splitting
+last_updated: "2026-03-30T07:05:17.197Z"
+last_activity: "2026-03-30 — v1.2 roadmap created: Phases 06-09 defined"
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
   percent: 0
 ---
 
@@ -62,6 +62,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
 | Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
+| Phase 06-types-and-interfaces P01 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: perturbGraph uses rebuild strategy (not RemoveEdge) — Graph has no RemoveEdge; collect canonical edges, mark nRemove for deletion, rebuild, add nAdd random edges
 - [Phase 05-warm-start]: Quality tests assert Q(warm) >= Q(cold_perturbed) not Q(cold_original) — topology changed so original Q is wrong baseline
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
+- [Phase 06-types-and-interfaces]: OverlappingCommunityDetector declared in ego_splitting.go (not detector.go) — overlapping detection concerns separate from disjoint detection
+- [Phase 06-types-and-interfaces]: egoSplittingDetector is unexported — callers program to OverlappingCommunityDetector interface, not the concrete type
+- [Phase 06-types-and-interfaces]: EgoSplittingOptions.Resolution defaults to 1.0 in NewEgoSplitting constructor — consistent with LouvainOptions/LeidenOptions zero-value pattern
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -113,7 +117,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-30
-Stopped at: v1.2 roadmap created (Phases 06-09)
+Last session: 2026-03-30T07:05:17.194Z
+Stopped at: Completed 06-01-PLAN.md — types and interfaces for ego splitting
 Resume file: None
 Next action: `/gsd:plan-phase 6`

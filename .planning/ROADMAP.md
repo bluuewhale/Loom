@@ -52,7 +52,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   4. `NewEgoSplitting(opts EgoSplittingOptions)` returns a value that satisfies `OverlappingCommunityDetector`; calling `Detect` returns a defined unimplemented sentinel error
   5. `go build ./...` and `go test ./...` pass with zero failures (stub, no logic yet)
 **Plans**: 1 plan
-- [ ] 06-01-PLAN.md — Types, stub constructor, and tests
+- [x] 06-01-PLAN.md — Types, stub constructor, and tests
 **UI hint**: no
 
 ### Phase 07: Persona Graph Infrastructure
