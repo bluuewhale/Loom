@@ -17,9 +17,9 @@
 
 ### Algorithm Implementation
 
-- [ ] **EGO-04**: Caller can construct ego-net for each node u as `G[N(u)]` (neighbors only, u excluded) via Algorithm 1 using existing `g.Subgraph()` + `LocalDetector.Detect()`
-- [ ] **EGO-05**: Caller can generate persona graph where each (node, local-community) pair becomes one persona node with disjoint PersonaID space `[N, N+P)` and deduplicated edge rewiring (Algorithm 2)
-- [ ] **EGO-06**: Caller can recover overlapping community membership by running `GlobalDetector.Detect()` on persona graph and mapping persona assignments back to original nodes (Algorithm 3)
+- [x] **EGO-04**: Caller can construct ego-net for each node u as `G[N(u)]` (neighbors only, u excluded) via Algorithm 1 using existing `g.Subgraph()` + `LocalDetector.Detect()`
+- [x] **EGO-05**: Caller can generate persona graph where each (node, local-community) pair becomes one persona node with disjoint PersonaID space `[N, N+P)` and deduplicated edge rewiring (Algorithm 2)
+- [x] **EGO-06**: Caller can recover overlapping community membership by running `GlobalDetector.Detect()` on persona graph and mapping persona assignments back to original nodes (Algorithm 3)
 
 ### Accuracy Validation
 
@@ -67,9 +67,9 @@
 | EGO-02 | Phase 06 | Complete |
 | EGO-03 | Phase 06 | Complete |
 | EGO-07 | Phase 06 | Complete |
-| EGO-04 | Phase 07 | Pending |
-| EGO-05 | Phase 07 | Pending |
-| EGO-06 | Phase 07 | Pending |
+| EGO-04 | Phase 07 | Complete |
+| EGO-05 | Phase 07 | Complete |
+| EGO-06 | Phase 07 | Complete |
 | EGO-08 | Phase 08 | Pending |
 | EGO-09 | Phase 08 | Pending |
 | EGO-10 | Phase 08 | Pending |
