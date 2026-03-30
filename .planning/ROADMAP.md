@@ -79,7 +79,10 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   2. `EgoSplittingDetector.Detect` achieves Omega index >= 0.5 on Karate Club (34n), Football (115n), and Polbooks (105n) ground-truth fixtures
   3. `go test -race ./...` passes with zero race reports on the full Detect pipeline
   4. `BenchmarkEgoSplitting10K` completes in <= 300ms/op on a 10,000-node synthetic graph
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 08-01-PLAN.md — OmegaIndex implementation + Detect() pipeline wiring
+- [ ] 08-02-PLAN.md — Accuracy tests on 3 fixtures + race test + 10K benchmark
 **UI hint**: no
 
 ### Phase 09: Edge Cases and Hardening
@@ -104,5 +107,5 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 05: Warm Start | v1.1 | 2/2 | Complete | 2026-03-30 |
 | 06: Types and Interfaces | v1.2 | 1/1 | Complete | 2026-03-30 |
 | 07: Persona Graph Infrastructure | v1.2 | 2/2 | Complete | 2026-03-30 |
-| 08: Full Detect Pipeline + Accuracy + Performance | v1.2 | TBD | Not started | - |
+| 08: Full Detect Pipeline + Accuracy + Performance | v1.2 | 0/2 | Planning | - |
 | 09: Edge Cases and Hardening | v1.2 | TBD | Not started | - |
