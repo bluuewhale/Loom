@@ -82,7 +82,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 **Plans**: 2 plans
 Plans:
 - [x] 08-01-PLAN.md — OmegaIndex implementation + Detect() pipeline wiring
-- [ ] 08-02-PLAN.md — Accuracy tests on 3 fixtures + race test + 10K benchmark
+- [x] 08-02-PLAN.md — Accuracy tests on 3 fixtures + race test + 10K benchmark
 **UI hint**: no
 
 ### Phase 09: Edge Cases and Hardening
