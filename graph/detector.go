@@ -46,6 +46,11 @@ type LeidenOptions struct {
 	MaxIterations    int
 	Tolerance        float64
 	InitialPartition map[NodeID]int // nil = cold start (default)
+	// NumRuns specifies how many independent runs to execute when Seed=0
+	// (non-deterministic mode). The run with the highest modularity Q is returned.
+	// 0 = default (3 runs), 1 = single run (same as Seed!=0 behavior).
+	// Ignored when Seed != 0.
+	NumRuns int
 }
 
 // louvainDetector implements CommunityDetector using the Louvain algorithm.
