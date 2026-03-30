@@ -81,7 +81,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   4. `BenchmarkEgoSplitting10K` completes in <= 300ms/op on a 10,000-node synthetic graph
 **Plans**: 2 plans
 Plans:
-- [ ] 08-01-PLAN.md — OmegaIndex implementation + Detect() pipeline wiring
+- [x] 08-01-PLAN.md — OmegaIndex implementation + Detect() pipeline wiring
 - [ ] 08-02-PLAN.md — Accuracy tests on 3 fixtures + race test + 10K benchmark
 **UI hint**: no
 
