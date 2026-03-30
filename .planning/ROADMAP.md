@@ -51,7 +51,8 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. `EgoSplittingOptions` accepts `LocalDetector CommunityDetector`, `GlobalDetector CommunityDetector`, and `Resolution float64`; nil detectors default to Louvain
   4. `NewEgoSplitting(opts EgoSplittingOptions)` returns a value that satisfies `OverlappingCommunityDetector`; calling `Detect` returns a defined unimplemented sentinel error
   5. `go build ./...` and `go test ./...` pass with zero failures (stub, no logic yet)
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 06-01-PLAN.md — Types, stub constructor, and tests
 **UI hint**: no
 
 ### Phase 07: Persona Graph Infrastructure
@@ -64,7 +65,8 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. `personaGraph.TotalWeight()` equals `g.TotalWeight()` after `buildPersonaGraph` — no edge double-counting
   4. `mapPersonasToOriginal` returns a bijective inverse map: every persona ID maps to exactly one original NodeID, with no unmapped personas
   5. Running `GlobalDetector.Detect` on the persona graph and applying `mapPersonasToOriginal` produces an `OverlappingCommunityResult` where at least one original node holds memberships from more than one persona (verified on Karate Club)
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 06-01-PLAN.md — Types, stub constructor, and tests
 **UI hint**: no
 
 ### Phase 08: Full Detect Pipeline + Accuracy + Performance
@@ -76,7 +78,8 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   2. `EgoSplittingDetector.Detect` achieves Omega index >= 0.5 on Karate Club (34n), Football (115n), and Polbooks (105n) ground-truth fixtures
   3. `go test -race ./...` passes with zero race reports on the full Detect pipeline
   4. `BenchmarkEgoSplitting10K` completes in <= 300ms/op on a 10,000-node synthetic graph
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 06-01-PLAN.md — Types, stub constructor, and tests
 **UI hint**: no
 
 ### Phase 09: Edge Cases and Hardening
@@ -87,7 +90,8 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   1. Degree-0 (isolated) nodes are assigned to their own singleton community — `Detect` does not panic and every isolated node appears in exactly one community
   2. A node whose ego-net yields a single local community produces exactly one persona equal to the original node (no splitting) — persona count does not grow unboundedly on star topologies
   3. `Detect` called on an empty graph (`NodeCount == 0`) returns a non-nil sentinel error and a zero-value result
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 06-01-PLAN.md — Types, stub constructor, and tests
 **UI hint**: no
 
 ## Progress
@@ -99,7 +103,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 03: Leiden Implementation | v1.0 | 1/1 | Complete | 2026-03-29 |
 | 04: Performance Hardening | v1.0 | 2/2 | Complete | 2026-03-29 |
 | 05: Warm Start | v1.1 | 2/2 | Complete | 2026-03-30 |
-| 06: Types and Interfaces | v1.2 | 0/? | Not started | - |
+| 06: Types and Interfaces | v1.2 | 0/1 | Planned | - |
 | 07: Persona Graph Infrastructure | v1.2 | 0/? | Not started | - |
 | 08: Full Detect Pipeline + Accuracy + Performance | v1.2 | 0/? | Not started | - |
 | 09: Edge Cases and Hardening | v1.2 | 0/? | Not started | - |
