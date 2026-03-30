@@ -93,4 +93,4 @@ graph/
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-30 after v1.1 Phase 05 (Warm Start) — InitialPartition warm-seed for Louvain and Leiden, firstPass guard, correctness tests, warm vs cold benchmarks.*
+*Last updated: 2026-03-30 after v1.1 milestone complete — Online Community Detection shipped.*

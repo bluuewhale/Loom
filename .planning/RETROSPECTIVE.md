@@ -51,6 +51,52 @@
 
 ---
 
+## Milestone: v1.1 — Online Community Detection
+
+**Shipped:** 2026-03-30
+**Phases:** 1 | **Plans:** 2 | **Sessions:** 1 (autonomous + review loop)
+
+### What Was Built
+
+- `InitialPartition map[NodeID]int` field on both `LouvainOptions` and `LeidenOptions` — nil = cold start, zero breaking change
+- Warm-seed `reset()` in `louvainState` and `leidenState`: maxCommID offset for new nodes, 0-indexed compaction, commStr rebuilt from current graph strengths
+- `firstPass` guard in both `Detect()` loops — warm seed applies only on original graph; supergraph passes always cold-reset
+- 4 warm-start correctness tests: Q(warm) ≥ Q(cold_perturbed) on 3 fixtures for both algorithms; fewer passes on unperturbed graph
+- `BenchmarkLouvainWarmStart` and `BenchmarkLeidenWarmStart` with setup correctly outside `b.ResetTimer()`
+
+### What Worked
+
+- **firstPass guard design**: Insight that warm partition applies only on the first supergraph level (not synthetic supergraph NodeIDs) was captured in research and correctly implemented — no regressions
+- **Pool safety by parameter**: Passing `initialPartition` as a `reset()` parameter (not storing on the state struct) preserved pool safety without any special handling
+- **Cross-AI review caught a real bug**: `/gsd:review` identified `perturbGraph` missing a duplicate-edge guard. The fix (existingEdges set with canonical direction) was incorporated in the revised plan before execution
+- **commStr rebuild from current graph**: Explicitly rebuilding from `g.Strength(n)` rather than copying from prior run was called out in research and correctly implemented in both state files
+
+### What Was Inefficient
+
+- **External CLI review blocked by Superset PATH**: `gemini` and `codex` are registered in PATH but blocked at execution time by Superset's shim. Only Claude self-review was possible — limits adversarial review value
+- **Go toolchain absent in verifier**: All runtime test/benchmark verification deferred to human execution. Static analysis was thorough but benchmark speedup claims remain unconfirmed
+- **50% speedup target aspirational for Leiden**: BFS refinement dominates Leiden wall time regardless of initial partition. Should be documented as directional goal, not hard threshold
+
+### Patterns Established
+
+- **Warm-start test pattern**: cold on original → perturb → cold on perturbed → warm on perturbed → assert Q(warm) ≥ Q(cold_perturbed)
+- **perturbGraph pattern**: canonical edge collection (n < e.To), shuffle+take nRemove, rebuild with existingEdges guard, add nAdd random edges skipping duplicates
+- **firstPass guard**: `firstPass := true` before supergraph loop; first iteration uses caller-supplied partition, subsequent iterations nil
+
+### Key Lessons
+
+1. **Warm start only helps Phase 1 local moves**: Supergraph passes are always cold because supergraph NodeIDs are synthetic — don't try to warm-seed supergraph passes
+2. **perturbGraph duplicate-edge guard is load-bearing**: `graph.AddEdge` does not deduplicate; any helper building graphs by adding edges must track and skip duplicates
+3. **Self-review has limits**: Without independent AI review, blind spots in the author's own design are hard to catch; the review loop added one cycle but caught a real correctness issue
+
+### Cost Observations
+
+- Model mix: Planner = opus, Checker/Verifier/Integration = sonnet
+- Sessions: 1 autonomous loop + review iteration
+- Notable: `/gsd:review` → `/gsd:plan-phase --reviews` loop added one revision cycle but caught a real correctness issue in test infrastructure
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -58,14 +104,17 @@
 | Milestone | Sessions | Phases | Key Change |
 |-----------|----------|--------|------------|
 | v1.0 | 1 | 4 | First milestone — autonomous loop established |
+| v1.1 | 1 | 1 | Review loop added; `/gsd:review` → `--reviews` replan cycle |
 
 ### Cumulative Quality
 
 | Milestone | Tests | Coverage | Zero-Dep Additions |
 |-----------|-------|----------|-------------------|
 | v1.0 | 35+ | graph package | 0 external deps |
+| v1.1 | 39+ | graph package | 0 external deps |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Pool reuse requires deep copy of any state saved before Reset()
 2. Research before planning pays off for algorithm-heavy phases
+3. Test helpers that call AddEdge must guard against duplicate edges — graph.AddEdge does not deduplicate
