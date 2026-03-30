@@ -98,6 +98,56 @@ func BenchmarkLouvain10K_Allocs(b *testing.B) {
 	}
 }
 
+// BenchmarkLouvainWarmStart measures warm-start Louvain on a perturbed 10K-node graph.
+// Setup: cold detect on bench10K, perturb +-100 edges (~1%), then warm detect.
+// Target: warm ns/op <= 50% of BenchmarkLouvain10K ns/op.
+func BenchmarkLouvainWarmStart(b *testing.B) {
+	// Setup: cold detect to get prior partition
+	det := NewLouvain(LouvainOptions{Seed: 1})
+	coldResult, err := det.Detect(bench10K)
+	if err != nil {
+		b.Fatalf("cold detect: %v", err)
+	}
+
+	// Perturb: remove 100 + add 100 edges (~1% of ~50K edges)
+	perturbed := perturbGraph(bench10K, 100, 100, 42)
+
+	// Warm detector
+	warmDet := NewLouvain(LouvainOptions{Seed: 1, InitialPartition: coldResult.Partition})
+	warmDet.Detect(perturbed) // warmup: populate sync.Pool
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		warmDet.Detect(perturbed)
+	}
+}
+
+// BenchmarkLeidenWarmStart measures warm-start Leiden on a perturbed 10K-node graph.
+// Setup: cold detect on bench10K, perturb +-100 edges (~1%), then warm detect.
+// Target: warm ns/op <= 50% of BenchmarkLeiden10K ns/op.
+func BenchmarkLeidenWarmStart(b *testing.B) {
+	// Setup: cold detect to get prior partition
+	det := NewLeiden(LeidenOptions{Seed: 1})
+	coldResult, err := det.Detect(bench10K)
+	if err != nil {
+		b.Fatalf("cold detect: %v", err)
+	}
+
+	// Perturb: remove 100 + add 100 edges (~1% of ~50K edges)
+	perturbed := perturbGraph(bench10K, 100, 100, 42)
+
+	// Warm detector
+	warmDet := NewLeiden(LeidenOptions{Seed: 1, InitialPartition: coldResult.Partition})
+	warmDet.Detect(perturbed) // warmup: populate sync.Pool
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		warmDet.Detect(perturbed)
+	}
+}
+
 // TestConcurrentDetect verifies that concurrent Detect calls on distinct *Graph
 // instances produce no data races. Run with -race flag to catch violations. (PERF-02)
 func TestConcurrentDetect(t *testing.T) {
