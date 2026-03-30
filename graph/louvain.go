@@ -77,8 +77,14 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	state := acquireLouvainState(currentGraph, seed)
 	defer releaseLouvainState(state)
 
+	firstPass := true
 	for {
-		state.reset(currentGraph, seed)
+		if firstPass {
+			state.reset(currentGraph, seed, d.opts.InitialPartition)
+			firstPass = false
+		} else {
+			state.reset(currentGraph, seed, nil)
+		}
 		moves := phase1(currentGraph, state, resolution, currentGraph.TotalWeight())
 		totalPasses++
 		totalMoves += moves
