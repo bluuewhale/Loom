@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Online Community Detection
-status: complete
-stopped_at: v1.1 milestone complete — archived 2026-03-30
+milestone: v1.2
+milestone_name: Overlapping Community Detection
+status: in_progress
+stopped_at: Defining requirements
 last_updated: "2026-03-30T00:00:00.000Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 05
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-30 - Completed quick task 260330-jq7: warm-start 테스트 누락 사항 추가
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-30 — Milestone v1.2 started: Overlapping Community Detection (Ego Splitting Framework)
 
-Progress: [████████████] 100% (Phase 05 complete, 2/2 plans done)
+Progress: [____________] 0% (Phase not yet defined)
 
 ## Performance Metrics
 
