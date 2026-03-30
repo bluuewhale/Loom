@@ -13,7 +13,7 @@
 
 - [x] **Phase 06: Types and Interfaces** - Define `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, and `NewEgoSplitting` stub (completed 2026-03-30)
 - [x] **Phase 07: Persona Graph Infrastructure** - Implement `personaMap`, `buildPersonaGraph`, `mapPersonasToOriginal`, and Algorithm 1 ego-net construction (completed 2026-03-30)
-- [ ] **Phase 08: Full Detect Pipeline + Accuracy + Performance** - Wire Algorithms 1-3 into `Detect`, integrate Omega index, validate fixtures, benchmark 10K
+- [x] **Phase 08: Full Detect Pipeline + Accuracy + Performance** - Wire Algorithms 1-3 into `Detect`, integrate Omega index, validate fixtures, benchmark 10K
 - [ ] **Phase 09: Edge Cases and Hardening** - Guards for empty graph, isolated nodes, single-community ego-nets, and degenerate inputs
 
 </details>
@@ -93,7 +93,9 @@ Plans:
   1. Degree-0 (isolated) nodes are assigned to their own singleton community — `Detect` does not panic and every isolated node appears in exactly one community
   2. A node whose ego-net yields a single local community produces exactly one persona equal to the original node (no splitting) — persona count does not grow unboundedly on star topologies
   3. `Detect` called on an empty graph (`NodeCount == 0`) returns a non-nil sentinel error and a zero-value result
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 09-01-PLAN.md — ErrEmptyGraph sentinel, empty-graph guard, and edge-case tests (EGO-12, EGO-13, EGO-14)
 **UI hint**: no
 
 ## Progress
