@@ -65,8 +65,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. `personaGraph.TotalWeight()` equals `g.TotalWeight()` after `buildPersonaGraph` — no edge double-counting
   4. `mapPersonasToOriginal` returns a bijective inverse map: every persona ID maps to exactly one original NodeID, with no unmapped personas
   5. Running `GlobalDetector.Detect` on the persona graph and applying `mapPersonasToOriginal` produces an `OverlappingCommunityResult` where at least one original node holds memberships from more than one persona (verified on Karate Club)
-**Plans**: 1 plan
-- [ ] 06-01-PLAN.md — Types, stub constructor, and tests
+**Plans**: 2 plans
+- [ ] 07-01-PLAN.md — buildEgoNet, buildPersonaGraph, mapPersonasToOriginal with triangle/barbell tests
+- [ ] 07-02-PLAN.md — Karate Club integration test for Algorithm 1+2+3 flow
 **UI hint**: no
 
 ### Phase 08: Full Detect Pipeline + Accuracy + Performance
@@ -104,6 +105,6 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 04: Performance Hardening | v1.0 | 2/2 | Complete | 2026-03-29 |
 | 05: Warm Start | v1.1 | 2/2 | Complete | 2026-03-30 |
 | 06: Types and Interfaces | v1.2 | 0/1 | Planned | - |
-| 07: Persona Graph Infrastructure | v1.2 | 0/? | Not started | - |
+| 07: Persona Graph Infrastructure | v1.2 | 0/2 | Planned | - |
 | 08: Full Detect Pipeline + Accuracy + Performance | v1.2 | 0/? | Not started | - |
 | 09: Edge Cases and Hardening | v1.2 | 0/? | Not started | - |
