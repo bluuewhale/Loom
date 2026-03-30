@@ -3,8 +3,13 @@
 ## Milestones
 
 - ✅ **v1.0 Community Detection** — Phases 01-04 (shipped 2026-03-29)
+- 🔄 **v1.1 Online Community Detection** — Phases 05+ (in progress)
 
 ## Phases
+
+### v1.1 Online Community Detection
+
+- [ ] Phase 05: Warm Start — Online Community Detection (incremental reuse of prior results)
 
 <details>
 <summary>✅ v1.0 Community Detection (Phases 01-04) — SHIPPED 2026-03-29</summary>
@@ -26,3 +31,4 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 02: Interface + Louvain Core | v1.0 | 2/2 | Complete | 2026-03-29 |
 | 03: Leiden Implementation | v1.0 | 1/1 | Complete | 2026-03-29 |
 | 04: Performance Hardening | v1.0 | 2/2 | Complete | 2026-03-29 |
+| 05: Warm Start | v1.1 | 0 | Pending | — |
