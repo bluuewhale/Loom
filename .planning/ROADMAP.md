@@ -14,7 +14,7 @@
 - [x] **Phase 06: Types and Interfaces** - Define `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, and `NewEgoSplitting` stub (completed 2026-03-30)
 - [x] **Phase 07: Persona Graph Infrastructure** - Implement `personaMap`, `buildPersonaGraph`, `mapPersonasToOriginal`, and Algorithm 1 ego-net construction (completed 2026-03-30)
 - [x] **Phase 08: Full Detect Pipeline + Accuracy + Performance** - Wire Algorithms 1-3 into `Detect`, integrate Omega index, validate fixtures, benchmark 10K
-- [ ] **Phase 09: Edge Cases and Hardening** - Guards for empty graph, isolated nodes, single-community ego-nets, and degenerate inputs
+- [x] **Phase 09: Edge Cases and Hardening** - Guards for empty graph, isolated nodes, single-community ego-nets, and degenerate inputs
 
 </details>
 
