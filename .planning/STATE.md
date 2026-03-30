@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 Phase: 05
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-03-30
+Last activity: 2026-03-30 - Completed quick task 260330-jq7: warm-start 테스트 누락 사항 추가
 
 Progress: [████████████] 100% (Phase 05 complete, 2/2 plans done)
 
@@ -87,6 +87,12 @@ Progress: [████████████] 100% (Phase 05 complete, 2/2 pl
 ### Pending Todos
 
 None yet.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260330-jq7 | warm-start 테스트 누락 사항 추가 | 2026-03-30 | 3390928 | [260330-jq7-warm-start](.planning/quick/260330-jq7-warm-start/) |
 
 ### Blockers/Concerns
 
