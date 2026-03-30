@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 08-01-PLAN.md — OmegaIndex + Detect pipeline
-last_updated: "2026-03-30T08:08:05.534Z"
-last_activity: 2026-03-30
+stopped_at: v1.2 roadmap created (Phases 06-09)
+last_updated: "2026-03-30T07:57:56.422Z"
+last_activity: 2026-03-30 -- Phase 08 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 3
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 07 — persona-graph-infrastructure
+**Current focus:** Phase 08 — full-detect-pipeline-accuracy-performance
 
 ## Current Position
 
-Phase: 07
-Plan: Not started
-Status: Executing Phase 07
-Last activity: 2026-03-30
+Phase: 08 (full-detect-pipeline-accuracy-performance) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 08
+Last activity: 2026-03-30 -- Phase 08 execution started
 
 Progress: [____________] 0% (0/4 phases complete)
 
@@ -62,7 +62,6 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
 | Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
-| Phase 08 P01 | 20 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -87,8 +86,6 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: perturbGraph uses rebuild strategy (not RemoveEdge) — Graph has no RemoveEdge; collect canonical edges, mark nRemove for deletion, rebuild, add nAdd random edges
 - [Phase 05-warm-start]: Quality tests assert Q(warm) >= Q(cold_perturbed) not Q(cold_original) — topology changed so original Q is wrong baseline
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
-- [Phase 08]: OmegaIndex precomputes resultMembership and gtMembership maps for O(C) per-pair lookup
-- [Phase 08]: Detect() deduplicates community IDs per node before commRemap compaction
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -116,7 +113,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-30T08:08:05.531Z
-Stopped at: Completed 08-01-PLAN.md — OmegaIndex + Detect pipeline
+Last session: 2026-03-30
+Stopped at: v1.2 roadmap created (Phases 06-09)
 Resume file: None
 Next action: `/gsd:plan-phase 6`
