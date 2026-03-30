@@ -2,8 +2,11 @@ package graph
 
 import (
 	"errors"
+	"math"
 	"sort"
 	"testing"
+
+	"github.com/bluuewhale/loom/graph/testdata"
 )
 
 // Compile-time interface satisfaction check.
@@ -261,5 +264,99 @@ func TestMapPersonasToOriginal_Bijective(t *testing.T) {
 		if _, ok := result[n]; !ok {
 			t.Errorf("original node %d missing from mapPersonasToOriginal result", n)
 		}
+	}
+}
+
+// --- Karate Club integration tests (Algorithm 1+2+3 end-to-end) ---
+
+// TestPersonaGraphKarateClub_OverlappingMembership validates the full pipeline on
+// Zachary's Karate Club graph: buildPersonaGraph -> GlobalDetector.Detect ->
+// mapPersonasToOriginal. Asserts weight conservation, collision-free PersonaID
+// space, and at least one node with overlapping community membership.
+func TestPersonaGraphKarateClub_OverlappingMembership(t *testing.T) {
+	// Build Karate Club graph (34 nodes, 78 edges, nodes 0-33).
+	g := buildGraph(testdata.KarateClubEdges)
+
+	// Step 1: build persona graph with seeded Louvain as local detector.
+	local := NewLouvain(LouvainOptions{Seed: 42})
+	personaGraph, _, inverseMap, err := buildPersonaGraph(g, local)
+	if err != nil {
+		t.Fatalf("buildPersonaGraph error: %v", err)
+	}
+
+	// (a) Weight conservation: personaGraph.TotalWeight() == g.TotalWeight() within 1e-9.
+	if math.Abs(personaGraph.TotalWeight()-g.TotalWeight()) > 1e-9 {
+		t.Errorf("TotalWeight mismatch: personaGraph=%v, original=%v", personaGraph.TotalWeight(), g.TotalWeight())
+	}
+
+	// (b) All PersonaIDs must be >= 34 (original node range is 0-33).
+	for _, id := range personaGraph.Nodes() {
+		if int(id) < 34 {
+			t.Errorf("PersonaID %d collides with original node space [0,34)", id)
+		}
+	}
+
+	// Step 2: run global Louvain on persona graph.
+	global := NewLouvain(LouvainOptions{Seed: 42})
+	globalResult, err := global.Detect(personaGraph)
+	if err != nil {
+		t.Fatalf("global Detect error: %v", err)
+	}
+
+	// Step 3: map personas back to original nodes.
+	nodeCommunities := mapPersonasToOriginal(globalResult.Partition, inverseMap)
+
+	// (c) At least one original node has overlapping membership (len > 1).
+	hasOverlap := false
+	for _, comms := range nodeCommunities {
+		if len(comms) > 1 {
+			hasOverlap = true
+			break
+		}
+	}
+	if !hasOverlap {
+		t.Error("expected at least one node with overlapping membership (len(communities) > 1), got none")
+	}
+
+	// (d) All 34 original nodes (0-33) must appear in community assignments.
+	for i := 0; i < 34; i++ {
+		if _, ok := nodeCommunities[NodeID(i)]; !ok {
+			t.Errorf("original node %d missing from community assignments", i)
+		}
+	}
+
+	t.Logf("KarateClub persona graph: %d persona nodes, %d original communities detected",
+		personaGraph.NodeCount(), len(nodeCommunities))
+}
+
+// TestPersonaGraphKarateClub_AllNodesAccountedFor verifies that every original
+// node (0-33) appears in at least one community after the full pipeline.
+func TestPersonaGraphKarateClub_AllNodesAccountedFor(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+
+	local := NewLouvain(LouvainOptions{Seed: 42})
+	personaGraph, _, inverseMap, err := buildPersonaGraph(g, local)
+	if err != nil {
+		t.Fatalf("buildPersonaGraph error: %v", err)
+	}
+
+	global := NewLouvain(LouvainOptions{Seed: 42})
+	globalResult, err := global.Detect(personaGraph)
+	if err != nil {
+		t.Fatalf("global Detect error: %v", err)
+	}
+
+	nodeCommunities := mapPersonasToOriginal(globalResult.Partition, inverseMap)
+
+	// Every node 0-33 must map to at least one community.
+	missing := []int{}
+	for i := 0; i < 34; i++ {
+		comms, ok := nodeCommunities[NodeID(i)]
+		if !ok || len(comms) == 0 {
+			missing = append(missing, i)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("nodes missing from community assignments: %v", missing)
 	}
 }

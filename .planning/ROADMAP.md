@@ -37,4 +37,4 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 03: Leiden Implementation | v1.0 | 1/1 | Complete | 2026-03-29 |
 | 04: Performance Hardening | v1.0 | 2/2 | Complete | 2026-03-29 |
 | 05: Warm Start | v1.1 | 2/2 | Complete | 2026-03-30 |
-| 07: Persona Graph Infrastructure | v1.2 | 1/2 | In Progress | - |
+| 07: Persona Graph Infrastructure | v1.2 | 2/2 | Complete | 2026-03-30 |
