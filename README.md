@@ -53,12 +53,12 @@ for node, community := range result.Partition {
 ### Using string labels
 
 ```go
-reg := graph.NewNodeRegistry()
+reg := graph.NewRegistry()
 g := graph.NewGraph(false)
 
-alice := reg.Add("alice")
-bob   := reg.Add("bob")
-carol := reg.Add("carol")
+alice := reg.Register("alice")
+bob   := reg.Register("bob")
+carol := reg.Register("carol")
 
 g.AddEdge(alice, bob, 1.0)
 g.AddEdge(bob, carol, 1.0)
@@ -67,7 +67,9 @@ det := graph.NewLeiden(graph.LeidenOptions{Seed: 42})
 result, _ := det.Detect(g)
 
 for node, community := range result.Partition {
-    fmt.Printf("  %s → community %d\n", reg.Label(node), community)
+    if label, ok := reg.Name(node); ok {
+        fmt.Printf("  %s → community %d\n", label, community)
+    }
 }
 ```
 
@@ -100,10 +102,10 @@ type LouvainOptions struct {
 func NewLeiden(opts LeidenOptions) CommunityDetector
 
 type LeidenOptions struct {
-    Seed       int64
-    MaxPasses  int
-    Tolerance  float64
-    Resolution float64
+    Seed          int64
+    MaxIterations int
+    Tolerance     float64
+    Resolution    float64
 }
 ```
 
@@ -128,10 +130,11 @@ func ComputeModularityWeighted(g *Graph, partition map[NodeID]int, resolution fl
 ### NodeRegistry
 
 ```go
-func NewNodeRegistry() *NodeRegistry
-func (r *NodeRegistry) Add(label string) NodeID
-func (r *NodeRegistry) Label(id NodeID) string
-func (r *NodeRegistry) ID(label string) (NodeID, bool)
+func NewRegistry() *NodeRegistry
+func (r *NodeRegistry) Register(name string) NodeID
+func (r *NodeRegistry) Name(id NodeID) (string, bool)
+func (r *NodeRegistry) ID(name string) (NodeID, bool)
+func (r *NodeRegistry) Len() int
 ```
 
 ## Performance
@@ -151,9 +154,9 @@ Validated on standard benchmark graphs:
 
 | Dataset | Nodes | Edges | Louvain NMI | Leiden NMI |
 |---------|-------|-------|-------------|------------|
-| Karate Club | 34 | 78 | 0.65+ | 0.716 |
-| Political Books | 105 | 441 | — | — |
-| College Football | 115 | 613 | — | — |
+| Karate Club | 34 | 78 | 0.83 | 0.716 |
+| Political Books | 105 | 441 | 1.000 | 1.000 |
+| College Football | 115 | 613 | 1.000 | 1.000 |
 
 NMI (Normalized Mutual Information) measures partition quality against ground-truth labels. Higher is better; 1.0 is perfect.
 
@@ -171,6 +174,54 @@ go test -bench=. ./graph
 
 # Verbose
 go test -v ./graph
+```
+
+## GraphRAG Example
+
+A common GraphRAG pipeline clusters a document similarity graph and uses each community as a context window:
+
+```go
+import "github.com/bluuewhale/loom/graph"
+
+// 1. Build a similarity graph over document chunks.
+//    Edge weight = cosine similarity; omit edges below threshold.
+g := graph.NewGraph(false)
+g.AddEdge(0, 1, 0.92)
+g.AddEdge(1, 2, 0.87)
+g.AddEdge(0, 2, 0.80)
+g.AddEdge(3, 4, 0.95)
+g.AddEdge(4, 5, 0.88)
+
+// 2. Detect communities. Leiden guarantees connected communities —
+//    each community becomes a coherent context window.
+det := graph.NewLeiden(graph.LeidenOptions{Seed: 42})
+result, err := det.Detect(g)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 3. Group chunk IDs by community for LLM summarization.
+clusters := make(map[int][]int)
+for chunkID, comm := range result.Partition {
+    clusters[comm] = append(clusters[comm], int(chunkID))
+}
+fmt.Printf("found %d communities, Q=%.4f\n", len(clusters), result.Modularity)
+```
+
+For online pipelines where the graph evolves incrementally, use warm-start to re-detect communities without starting from scratch:
+
+```go
+// Initial detection.
+det := graph.NewLouvain(graph.LouvainOptions{Seed: 42})
+result, _ := det.Detect(g)
+
+// After adding/removing edges, re-use the prior partition as a seed.
+// Warm-start converges in fewer passes when topology changes are small.
+det2 := graph.NewLouvain(graph.LouvainOptions{
+    Seed:             42,
+    InitialPartition: result.Partition,
+})
+result2, _ := det2.Detect(updatedGraph)
 ```
 
 ## When to use Louvain vs Leiden
