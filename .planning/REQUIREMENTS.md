@@ -23,12 +23,12 @@
 
 ### Accuracy Validation
 
-- [ ] **EGO-08**: Caller can validate overlapping community quality using `OmegaIndex(result OverlappingCommunityResult, groundTruth [][]NodeID) float64`
+- [x] **EGO-08**: Caller can validate overlapping community quality using `OmegaIndex(result OverlappingCommunityResult, groundTruth [][]NodeID) float64`
 - [ ] **EGO-09**: `EgoSplittingDetector` achieves Omega index ≥ 0.5 on Karate Club (34n), Football (115n), and Polbooks (105n) fixtures
 
 ### Performance and Concurrency
 
-- [ ] **EGO-10**: `EgoSplittingDetector.Detect()` is concurrent-safe — `go test -race` passes
+- [x] **EGO-10**: `EgoSplittingDetector.Detect()` is concurrent-safe — `go test -race` passes
 - [ ] **EGO-11**: `EgoSplittingDetector.Detect()` completes in ≤ 300ms on a 10,000-node graph (benchmark)
 
 ### Edge Cases
@@ -70,9 +70,9 @@
 | EGO-04 | Phase 07 | Complete |
 | EGO-05 | Phase 07 | Complete |
 | EGO-06 | Phase 07 | Complete |
-| EGO-08 | Phase 08 | Pending |
+| EGO-08 | Phase 08 | Complete |
 | EGO-09 | Phase 08 | Pending |
-| EGO-10 | Phase 08 | Pending |
+| EGO-10 | Phase 08 | Complete |
 | EGO-11 | Phase 08 | Pending |
 | EGO-12 | Phase 09 | Pending |
 | EGO-13 | Phase 09 | Pending |
