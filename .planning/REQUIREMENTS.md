@@ -33,9 +33,9 @@
 
 ### Edge Cases
 
-- [ ] **EGO-12**: `EgoSplittingDetector` handles degree-0 nodes (isolated nodes assigned to their own singleton community without panic)
-- [ ] **EGO-13**: `EgoSplittingDetector` handles nodes whose ego-net yields a single community (persona = original node, no splitting)
-- [ ] **EGO-14**: `EgoSplittingDetector` returns a defined error on empty graph input
+- [x] **EGO-12**: `EgoSplittingDetector` handles degree-0 nodes (isolated nodes assigned to their own singleton community without panic)
+- [x] **EGO-13**: `EgoSplittingDetector` handles nodes whose ego-net yields a single community (persona = original node, no splitting)
+- [x] **EGO-14**: `EgoSplittingDetector` returns a defined error on empty graph input
 
 ---
 
@@ -74,6 +74,6 @@
 | EGO-09 | Phase 08 | Complete |
 | EGO-10 | Phase 08 | Complete |
 | EGO-11 | Phase 08 | Complete |
-| EGO-12 | Phase 09 | Pending |
-| EGO-13 | Phase 09 | Pending |
-| EGO-14 | Phase 09 | Pending |
+| EGO-12 | Phase 09 | Complete |
+| EGO-13 | Phase 09 | Complete |
+| EGO-14 | Phase 09 | Complete |
