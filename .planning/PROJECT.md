@@ -8,9 +8,11 @@
 
 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
 
-## Current State (v1.0 — Shipped 2026-03-29)
+## Current State (v1.1 — Phase 05 complete 2026-03-30)
 
-**Community Detection milestone complete.** Louvain and Leiden algorithms implemented as swappable `CommunityDetector` interface. Both meet 10K-node <100ms target with sync.Pool state reuse. Race-free.
+**Warm Start (online community detection) added.** `InitialPartition map[NodeID]int` field on `LouvainOptions` and `LeidenOptions` — pass a prior `CommunityResult.Partition` to seed the algorithm's initial state for faster convergence on incrementally updated graphs. Nil = cold start (zero breaking change).
+
+**v1.0 — Community Detection milestone complete.** Louvain and Leiden algorithms implemented as swappable `CommunityDetector` interface. Both meet 10K-node <100ms target with sync.Pool state reuse. Race-free.
 
 ```
 graph/
@@ -48,6 +50,10 @@ graph/
 - ✓ 10,000 노드 기준 < 100ms/그래프 성능 목표 (Louvain 48ms, Leiden 57ms) — v1.0
 - ✓ concurrent-safe 설계 — sync.Pool + `go test -race` 통과 — v1.0
 - ✓ 정확도 검증: 3개 그래프 ground-truth NMI 검증 통과 — v1.0
+
+### Validated — v1.1
+
+- ✓ Warm start (online community detection) — `InitialPartition` on `LouvainOptions`/`LeidenOptions`, warm-seed `reset()`, `firstPass` guard — validated in Phase 05: Warm Start
 
 ### Active
 
@@ -87,4 +93,4 @@ graph/
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-29 after v1.0 milestone (Community Detection) — Louvain 48ms/10K, Leiden 57ms/10K, NMI validated on 3 graphs, race-free. 24/24 requirements shipped.*
+*Last updated: 2026-03-30 after v1.1 milestone complete — Online Community Detection shipped.*

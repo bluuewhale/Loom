@@ -2,6 +2,8 @@ package graph
 
 import (
 	"math"
+	"math/rand"
+	"slices"
 )
 
 // nmi computes normalized mutual information between two partitions.
@@ -73,4 +75,61 @@ func groundTruthPartition(gt map[int]int) map[NodeID]int {
 		result[NodeID(k)] = v
 	}
 	return result
+}
+
+// perturbGraph returns a copy of g with nRemove existing edges removed and nAdd
+// new random edges added, using a seeded RNG for reproducibility.
+// For undirected graphs, each undirected edge is counted once.
+func perturbGraph(g *Graph, nRemove, nAdd int, seed int64) *Graph {
+	rng := rand.New(rand.NewSource(seed))
+	nodes := g.Nodes()
+	slices.Sort(nodes)
+
+	// Collect all undirected edges (canonical: from < to).
+	type edge struct {
+		from, to NodeID
+		weight   float64
+	}
+	var allEdges []edge
+	for _, n := range nodes {
+		for _, e := range g.Neighbors(n) {
+			if n < e.To { // canonical direction only
+				allEdges = append(allEdges, edge{n, e.To, e.Weight})
+			}
+		}
+	}
+
+	// Select edges to remove (shuffle then take first nRemove).
+	rng.Shuffle(len(allEdges), func(i, j int) {
+		allEdges[i], allEdges[j] = allEdges[j], allEdges[i]
+	})
+	removeSet := make(map[[2]NodeID]struct{}, nRemove)
+	for i := 0; i < nRemove && i < len(allEdges); i++ {
+		removeSet[[2]NodeID{allEdges[i].from, allEdges[i].to}] = struct{}{}
+	}
+
+	// Rebuild graph without removed edges.
+	pg := NewGraph(false)
+	// Ensure all nodes exist (even if all their edges are removed).
+	for _, n := range nodes {
+		pg.AddNode(n, 1.0)
+	}
+	for _, e := range allEdges {
+		key := [2]NodeID{e.from, e.to}
+		if _, removed := removeSet[key]; !removed {
+			pg.AddEdge(e.from, e.to, e.weight)
+		}
+	}
+
+	// Add nAdd random new edges between existing nodes (skip self-loops and duplicates).
+	added := 0
+	for added < nAdd {
+		a := nodes[rng.Intn(len(nodes))]
+		b := nodes[rng.Intn(len(nodes))]
+		if a != b {
+			pg.AddEdge(a, b, 1.0)
+			added++
+		}
+	}
+	return pg
 }

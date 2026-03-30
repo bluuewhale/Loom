@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"community-detection/graph/testdata"
+	"github.com/bluuewhale/loom/graph/testdata"
 )
 
 // generateBA builds an undirected Barabasi-Albert preferential attachment graph
@@ -95,6 +95,96 @@ func BenchmarkLouvain10K_Allocs(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		det.Detect(bench10K)
+	}
+}
+
+// BenchmarkLouvainWarmStart measures warm-start Louvain on a perturbed 10K-node graph.
+// Setup: cold detect on bench10K, perturb +-100 edges (~1%), then warm detect.
+// Target: warm ns/op <= 50% of BenchmarkLouvain10K ns/op.
+func BenchmarkLouvainWarmStart(b *testing.B) {
+	// Setup: cold detect to get prior partition
+	det := NewLouvain(LouvainOptions{Seed: 1})
+	coldResult, err := det.Detect(bench10K)
+	if err != nil {
+		b.Fatalf("cold detect: %v", err)
+	}
+
+	// Perturb: remove 100 + add 100 edges (~1% of ~50K edges)
+	perturbed := perturbGraph(bench10K, 100, 100, 42)
+
+	// Warm detector
+	warmDet := NewLouvain(LouvainOptions{Seed: 1, InitialPartition: coldResult.Partition})
+	warmDet.Detect(perturbed) // warmup: populate sync.Pool
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		warmDet.Detect(perturbed)
+	}
+}
+
+// BenchmarkLeidenWarmStart measures warm-start Leiden on a perturbed 10K-node graph.
+// Setup: cold detect on bench10K, perturb +-100 edges (~1%), then warm detect.
+// Target: warm ns/op <= 50% of BenchmarkLeiden10K ns/op.
+func BenchmarkLeidenWarmStart(b *testing.B) {
+	// Setup: cold detect to get prior partition
+	det := NewLeiden(LeidenOptions{Seed: 1})
+	coldResult, err := det.Detect(bench10K)
+	if err != nil {
+		b.Fatalf("cold detect: %v", err)
+	}
+
+	// Perturb: remove 100 + add 100 edges (~1% of ~50K edges)
+	perturbed := perturbGraph(bench10K, 100, 100, 42)
+
+	// Warm detector
+	warmDet := NewLeiden(LeidenOptions{Seed: 1, InitialPartition: coldResult.Partition})
+	warmDet.Detect(perturbed) // warmup: populate sync.Pool
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		warmDet.Detect(perturbed)
+	}
+}
+
+// TestLouvainWarmStartSpeedup enforces that warm-start Louvain is at least 1.2x faster
+// than cold-start on the 10K-node BA graph. Uses testing.Benchmark to measure both
+// BenchmarkLouvain10K and BenchmarkLouvainWarmStart programmatically. (IG-2)
+func TestLouvainWarmStartSpeedup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping speedup test in short mode")
+	}
+	cold := testing.Benchmark(BenchmarkLouvain10K)
+	warm := testing.Benchmark(BenchmarkLouvainWarmStart)
+	if cold.NsPerOp() == 0 || warm.NsPerOp() == 0 {
+		t.Skip("benchmark returned 0 ns/op — too fast to measure")
+	}
+	speedup := float64(cold.NsPerOp()) / float64(warm.NsPerOp())
+	t.Logf("Louvain warm-start speedup: %.2fx (cold=%dns, warm=%dns)",
+		speedup, cold.NsPerOp(), warm.NsPerOp())
+	if speedup < 1.2 {
+		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
+	}
+}
+
+// TestLeidenWarmStartSpeedup enforces that warm-start Leiden is at least 1.2x faster
+// than cold-start on the 10K-node BA graph. Uses testing.Benchmark to measure both
+// BenchmarkLeiden10K and BenchmarkLeidenWarmStart programmatically. (IG-2)
+func TestLeidenWarmStartSpeedup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping speedup test in short mode")
+	}
+	cold := testing.Benchmark(BenchmarkLeiden10K)
+	warm := testing.Benchmark(BenchmarkLeidenWarmStart)
+	if cold.NsPerOp() == 0 || warm.NsPerOp() == 0 {
+		t.Skip("benchmark returned 0 ns/op — too fast to measure")
+	}
+	speedup := float64(cold.NsPerOp()) / float64(warm.NsPerOp())
+	t.Logf("Leiden warm-start speedup: %.2fx (cold=%dns, warm=%dns)",
+		speedup, cold.NsPerOp(), warm.NsPerOp())
+	if speedup < 1.2 {
+		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
 	}
 }
 

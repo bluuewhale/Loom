@@ -36,7 +36,7 @@ var leidenStatePool = sync.Pool{
 // acquireLeidenState obtains a leidenState from the pool and resets it for g.
 func acquireLeidenState(g *Graph, seed int64) *leidenState {
 	st := leidenStatePool.Get().(*leidenState)
-	st.reset(g, seed)
+	st.reset(g, seed, nil)
 	return st
 }
 
@@ -48,7 +48,9 @@ func releaseLeidenState(st *leidenState) {
 // reset reinitializes st for a new Detect pass on g.
 // Clears and repopulates all maps; resets slice lengths without freeing capacity.
 // Seed 0 uses time.Now().UnixNano() (non-deterministic).
-func (st *leidenState) reset(g *Graph, seed int64) {
+// initialPartition nil = cold start (existing behavior); non-nil = warm start.
+// refinedPartition is always cleared; it is repopulated after BFS refinement.
+func (st *leidenState) reset(g *Graph, seed int64, initialPartition map[NodeID]int) {
 	// Clear existing map contents (reuse allocated map).
 	clear(st.partition)
 	clear(st.refinedPartition)
@@ -67,12 +69,54 @@ func (st *leidenState) reset(g *Graph, seed int64) {
 	}
 	st.rng = rand.New(src)
 
-	// Populate singleton communities in ascending NodeID order for determinism.
+	// Populate communities in ascending NodeID order for determinism.
 	nodes := g.Nodes()
 	slices.Sort(nodes)
-	for i, n := range nodes {
-		st.partition[n] = i
-		st.commStr[i] = g.Strength(n)
+
+	if initialPartition == nil {
+		// Cold start: trivial singleton assignment (existing behavior).
+		for i, n := range nodes {
+			st.partition[n] = i
+			st.commStr[i] = g.Strength(n)
+		}
+		return
+	}
+
+	// Warm start: seed from initialPartition.
+	// Step 1: find max community ID for new-node singleton offset.
+	maxCommID := -1
+	for _, c := range initialPartition {
+		if c > maxCommID {
+			maxCommID = c
+		}
+	}
+	nextNewComm := maxCommID + 1
+
+	// Step 2: assign partition; new nodes not in prior partition get fresh singletons.
+	for _, n := range nodes {
+		if c, ok := initialPartition[n]; ok {
+			st.partition[n] = c
+		} else {
+			st.partition[n] = nextNewComm
+			nextNewComm++
+		}
+	}
+
+	// Step 3: compact to 0-indexed contiguous IDs (nodes already sorted — deterministic remap).
+	remap := make(map[int]int, len(nodes))
+	next := 0
+	for _, n := range nodes {
+		c := st.partition[n]
+		if _, exists := remap[c]; !exists {
+			remap[c] = next
+			next++
+		}
+		st.partition[n] = remap[c]
+	}
+
+	// Step 4: build commStr from CURRENT graph strengths (not from prior run).
+	for _, n := range nodes {
+		st.commStr[st.partition[n]] += g.Strength(n)
 	}
 }
 
