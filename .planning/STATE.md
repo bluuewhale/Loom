@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Online Community Detection
-status: complete
-stopped_at: v1.1 milestone complete — archived 2026-03-30
-last_updated: "2026-03-30T00:00:00.000Z"
+milestone: v1.0
+milestone_name: milestone
+status: verifying
+stopped_at: Completed 01-01-PLAN.md — Leiden multi-run NumRuns field and TestLeidenStabilityMultiRun
+last_updated: "2026-03-30T07:13:41.603Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 1
+  total_phases: 3
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 1
+  completed_plans: 1
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Planning next milestone
+**Current focus:** Phase 01 — leiden-nmi-seed
 
 ## Current Position
 
-Phase: 05
-Plan: Not started
+Phase: 01 (leiden-nmi-seed) — EXECUTING
+Plan: 1 of 1
 Status: Phase complete — ready for verification
-Last activity: 2026-03-30 - Completed quick task 260330-jq7: warm-start 테스트 누락 사항 추가
+Last activity: 2026-03-30
 
 Progress: [████████████] 100% (Phase 05 complete, 2/2 plans done)
 
@@ -59,6 +59,7 @@ Progress: [████████████] 100% (Phase 05 complete, 2/2 pl
 | Phase 04-performance-hardening-benchmark-fixtures P02 | 45min | 2 tasks | 6 files |
 | Phase 05-warm-start P01 | 15min | 2 tasks | 5 files |
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
+| Phase 01-leiden-nmi-seed P01 | 25min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Progress: [████████████] 100% (Phase 05 complete, 2/2 pl
 - [Phase 05-warm-start]: perturbGraph uses rebuild strategy (not RemoveEdge) — Graph has no RemoveEdge; collect canonical edges, mark nRemove for deletion, rebuild, add nAdd random edges
 - [Phase 05-warm-start]: Quality tests assert Q(warm) >= Q(cold_perturbed) not Q(cold_original) — topology changed so original Q is wrong baseline
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
+- [Phase 01-leiden-nmi-seed]: Q >= 0.38 threshold for TestLeidenStabilityMultiRun: best-Q selection picks modularity-optimal 4-community solution (Q~0.42), not NMI-aligned 3-community; NMI covered by deterministic TestLeidenKarateClubAccuracy
+- [Phase 01-leiden-nmi-seed]: NumRuns: 1 annotation on all Seed!=0 test calls: explicit documentation of single-run path; no behavior change since Seed!=0 ignores NumRuns per implementation
 
 ### Pending Todos
 
@@ -94,6 +97,12 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260330-jq7 | warm-start 테스트 누락 사항 추가 | 2026-03-30 | 3390928 | [260330-jq7-warm-start](.planning/quick/260330-jq7-warm-start/) |
 
+### Roadmap Evolution
+
+- Phase 1 added: Leiden NMI 안정성 — seed 의존성 문제 해결 및 알고리즘 수렴 보장 강화
+- Phase 2 added: 문서화 — GoDoc 예시 확충 및 GraphRAG 실전 예제 추가
+- Phase 3 added: 벤치마크 비교 — Python networkx 대비 성능 비교표 작성 (채택 논거)
+
 ### Blockers/Concerns
 
 - [Phase 02]: Verify `g.Edges()` API exists in graph.go before writing Louvain (CRIT-02 totalWeight fix depends on unique-edge iteration)
@@ -101,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T02:58:43Z
-Stopped at: Completed 05-02-PLAN.md — warm-start correctness tests and benchmarks
+Last session: 2026-03-30T07:13:41.600Z
+Stopped at: Completed 01-01-PLAN.md — Leiden multi-run NumRuns field and TestLeidenStabilityMultiRun
 Resume file: None
