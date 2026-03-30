@@ -50,13 +50,13 @@ Plans:
 
 ### Phase 2: 문서화 — GoDoc 예시 확충 및 GraphRAG 실전 예제 추가
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** GoDoc Example 함수 3개 추가, README에 GraphRAG 실전 예제 섹션 및 Accuracy NMI 값 기입, NumRuns API 문서화
+**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05
 **Depends on:** Phase 1
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 2 to break down)
+- [ ] 02-01-PLAN.md — GoDoc examples + README updates (GraphRAG example, NMI values, NumRuns, API corrections)
 
 ### Phase 3: 벤치마크 비교 — Python networkx 대비 성능 비교표 작성 (채택 논거)
 
