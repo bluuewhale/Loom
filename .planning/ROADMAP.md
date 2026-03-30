@@ -56,7 +56,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 02-01-PLAN.md — GoDoc examples + README updates (GraphRAG example, NMI values, NumRuns, API corrections)
+- [x] 02-01-PLAN.md — GoDoc examples + README updates (GraphRAG example, NMI values, NumRuns, API corrections)
 
 ### Phase 3: 벤치마크 비교 — Python networkx 대비 성능 비교표 작성 (채택 논거)
 
@@ -66,4 +66,4 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 03-01-PLAN.md — Go 1K benchmarks + scripts/compare.py + README comparison table
+- [x] 03-01-PLAN.md — Go 1K benchmarks + scripts/compare.py + README comparison table
