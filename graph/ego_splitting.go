@@ -5,6 +5,9 @@ import "errors"
 // ErrNotImplemented is returned by Detect until the Ego Splitting algorithm is implemented.
 var ErrNotImplemented = errors.New("ego splitting: not implemented")
 
+// ErrEmptyGraph is returned when Detect is called on a graph with no nodes.
+var ErrEmptyGraph = errors.New("ego splitting: empty graph")
+
 // OverlappingCommunityDetector detects overlapping (non-disjoint) communities
 // where a single node may belong to multiple communities.
 // Implementations must be safe for concurrent use on distinct *Graph instances.
@@ -58,6 +61,10 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 	// Guard: directed graphs not supported.
 	if g.IsDirected() {
 		return OverlappingCommunityResult{}, ErrDirectedNotSupported
+	}
+	// Guard: empty graph not supported.
+	if g.NodeCount() == 0 {
+		return OverlappingCommunityResult{}, ErrEmptyGraph
 	}
 
 	// Step 1: Build persona graph (Algorithms 1 + 2).
