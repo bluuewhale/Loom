@@ -95,7 +95,7 @@ Plans:
   3. `Detect` called on an empty graph (`NodeCount == 0`) returns a non-nil sentinel error and a zero-value result
 **Plans**: 1 plan
 Plans:
-- [ ] 09-01-PLAN.md — ErrEmptyGraph sentinel, empty-graph guard, and edge-case tests (EGO-12, EGO-13, EGO-14)
+- [x] 09-01-PLAN.md — ErrEmptyGraph sentinel, empty-graph guard, and edge-case tests (EGO-12, EGO-13, EGO-14)
 **UI hint**: no
 
 ## Progress
