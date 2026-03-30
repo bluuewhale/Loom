@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Online Community Detection
-status: verifying
-stopped_at: Completed 05-02-PLAN.md — warm-start correctness tests and benchmarks
-last_updated: "2026-03-30T03:10:33.571Z"
+status: complete
+stopped_at: v1.1 milestone complete — archived 2026-03-30
+last_updated: "2026-03-30T00:00:00.000Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 1
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 05 — warm-start
+**Current focus:** Planning next milestone
 
 ## Current Position
 
