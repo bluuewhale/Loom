@@ -13,13 +13,13 @@
 - [ ] **EGO-01**: Caller can use `OverlappingCommunityDetector` interface with `Detect(g *Graph) (OverlappingCommunityResult, error)` — distinct from existing `CommunityDetector`, zero breaking changes
 - [ ] **EGO-02**: Caller can access overlapping result as `Communities [][]NodeID` (community-first) and `NodeCommunities map[NodeID][]int` (node-first O(1) lookup) from `OverlappingCommunityResult`
 - [ ] **EGO-03**: Caller can configure `EgoSplittingOptions` with `LocalDetector CommunityDetector`, `GlobalDetector CommunityDetector`, and `Resolution float64` — both detectors default to Louvain if nil
+- [ ] **EGO-07**: Caller can construct an `EgoSplittingDetector` via `NewEgoSplitting(opts EgoSplittingOptions)` that implements `OverlappingCommunityDetector`
 
 ### Algorithm Implementation
 
 - [ ] **EGO-04**: Caller can construct ego-net for each node u as `G[N(u)]` (neighbors only, u excluded) via Algorithm 1 using existing `g.Subgraph()` + `LocalDetector.Detect()`
 - [ ] **EGO-05**: Caller can generate persona graph where each (node, local-community) pair becomes one persona node with disjoint PersonaID space `[N, N+P)` and deduplicated edge rewiring (Algorithm 2)
 - [ ] **EGO-06**: Caller can recover overlapping community membership by running `GlobalDetector.Detect()` on persona graph and mapping persona assignments back to original nodes (Algorithm 3)
-- [ ] **EGO-07**: Caller can construct an `EgoSplittingDetector` via `NewEgoSplitting(opts EgoSplittingOptions)` that implements `OverlappingCommunityDetector`
 
 ### Accuracy Validation
 
@@ -66,10 +66,10 @@
 | EGO-01 | Phase 06 | Pending |
 | EGO-02 | Phase 06 | Pending |
 | EGO-03 | Phase 06 | Pending |
+| EGO-07 | Phase 06 | Pending |
 | EGO-04 | Phase 07 | Pending |
 | EGO-05 | Phase 07 | Pending |
 | EGO-06 | Phase 07 | Pending |
-| EGO-07 | Phase 06 | Pending |
 | EGO-08 | Phase 08 | Pending |
 | EGO-09 | Phase 08 | Pending |
 | EGO-10 | Phase 08 | Pending |
@@ -77,5 +77,3 @@
 | EGO-12 | Phase 09 | Pending |
 | EGO-13 | Phase 09 | Pending |
 | EGO-14 | Phase 09 | Pending |
-
-*Note: Traceability will be finalized by roadmapper agent.*
