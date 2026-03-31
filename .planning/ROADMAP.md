@@ -4,8 +4,34 @@
 
 - ✅ **v1.0 Community Detection** — Phases 01-04 (shipped 2026-03-29)
 - ✅ **v1.1 Online Community Detection** — Phase 05 (shipped 2026-03-30)
+- ✅ **v1.2 Overlapping Community Detection** — Phases 06-09 (shipped 2026-03-31)
+- ✅ **v1.3 Online Ego-Splitting** — Phases 10-13 (shipped 2026-03-31)
 
 ## Phases
+
+<details>
+<summary>✅ v1.3 Online Ego-Splitting (Phases 10-13) — SHIPPED 2026-03-31</summary>
+
+- [x] Phase 10: Online API Contract (1/1 plan) — completed 2026-03-31
+- [x] Phase 11: Incremental Recomputation Core (2/2 plans) — completed 2026-03-31
+- [x] Phase 12: Parallel Ego-Net Construction and Performance (2/2 plans) — completed 2026-03-31
+- [x] Phase 13: Correctness Hardening and Race Safety (1/1 plan) — completed 2026-03-31
+
+Full details: `.planning/milestones/v1.3-ROADMAP.md`
+
+</details>
+
+<details>
+<summary>✅ v1.2 Overlapping Community Detection (Phases 06-09) — SHIPPED 2026-03-31</summary>
+
+- [x] Phase 06: Types and Interfaces (1/1 plan) — completed 2026-03-30
+- [x] Phase 07: Persona Graph Infrastructure (2/2 plans) — completed 2026-03-30
+- [x] Phase 08: Full Detect Pipeline + Accuracy + Performance (2/2 plans) — completed 2026-03-30
+- [x] Phase 09: Edge Cases and Hardening (1/1 plan) — completed 2026-03-30
+
+Full details: `.planning/milestones/v1.2-ROADMAP.md`
+
+</details>
 
 <details>
 <summary>✅ v1.1 Online Community Detection (Phase 05) — SHIPPED 2026-03-30</summary>
@@ -37,33 +63,11 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 03: Leiden Implementation | v1.0 | 1/1 | Complete | 2026-03-29 |
 | 04: Performance Hardening | v1.0 | 2/2 | Complete | 2026-03-29 |
 | 05: Warm Start | v1.1 | 2/2 | Complete | 2026-03-30 |
-
-### Phase 1: Leiden NMI 안정성 — seed 의존성 문제 해결 및 알고리즘 수렴 보장 강화
-
-**Goal:** LeidenOptions에 NumRuns 멀티런 전략을 추가하여 Seed=0 모드에서 NMI 품질 안정성 확보
-**Requirements**: LEIDEN-NMI-01, LEIDEN-NMI-02, LEIDEN-NMI-03
-**Depends on:** Phase 0
-**Plans:** 1 plan
-
-Plans:
-- [x] 01-01-PLAN.md — NumRuns multi-run 구현 + 테스트 업데이트 및 stability 테스트 추가
-
-### Phase 2: 문서화 — GoDoc 예시 확충 및 GraphRAG 실전 예제 추가
-
-**Goal:** GoDoc Example 함수 3개 추가, README에 GraphRAG 실전 예제 섹션 및 Accuracy NMI 값 기입, NumRuns API 문서화
-**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05
-**Depends on:** Phase 1
-**Plans:** 1 plan
-
-Plans:
-- [x] 02-01-PLAN.md — GoDoc examples + README updates (GraphRAG example, NMI values, NumRuns, API corrections)
-
-### Phase 3: 벤치마크 비교 — Python networkx 대비 성능 비교표 작성 (채택 논거)
-
-**Goal:** Go 1K 벤치마크 추가, Python python-louvain 비교 스크립트 작성, README Performance 섹션에 Go vs Python 비교표 추가 (~15x at 1K, ~75x at 10K 속도 우위 표시)
-**Requirements**: BENCH-01, BENCH-02, BENCH-03
-**Depends on:** Phase 2
-**Plans:** 1 plan
-
-Plans:
-- [x] 03-01-PLAN.md — Go 1K benchmarks + scripts/compare.py + README comparison table
+| 06: Types and Interfaces | v1.2 | 1/1 | Complete | 2026-03-30 |
+| 07: Persona Graph Infrastructure | v1.2 | 2/2 | Complete | 2026-03-30 |
+| 08: Full Detect Pipeline + Accuracy + Performance | v1.2 | 2/2 | Complete | 2026-03-30 |
+| 09: Edge Cases and Hardening | v1.2 | 1/1 | Complete | 2026-03-30 |
+| 10: Online API Contract | v1.3 | 1/1 | Complete | 2026-03-31 |
+| 11: Incremental Recomputation Core | v1.3 | 2/2 | Complete | 2026-03-31 |
+| 12: Parallel Ego-Net Construction and Performance | v1.3 | 2/2 | Complete | 2026-03-31 |
+| 13: Correctness Hardening and Race Safety | v1.3 | 1/1 | Complete | 2026-03-31 |

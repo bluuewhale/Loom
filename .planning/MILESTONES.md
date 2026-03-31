@@ -1,5 +1,19 @@
 # Milestones
 
+## v1.3 Online Ego-Splitting (Shipped: 2026-03-31)
+
+**Phases completed:** 4 phases, 6 plans — graph/ego_splitting.go: 942 LOC | tests: 1713 LOC
+
+**Key accomplishments:**
+
+- `OnlineOverlappingCommunityDetector` interface + `NewOnlineEgoSplitting` constructor with stable `Update(g, delta, prior)` API, empty-delta 0-alloc fast-path, and directed guard
+- Incremental pipeline: `computeAffected` scopes ego-net rebuilds to affected nodes only; `buildPersonaGraphIncremental` carries over unaffected PersonaIDs; `warmStartedDetector` warm-starts global Louvain/Leiden from prior partition
+- Parallel ego-net goroutine pool (GOMAXPROCS workers) reduces `BenchmarkEgoSplitting10K` from ~1500ms to 233ms/op (target ≤300ms)
+- `BenchmarkUpdate1Node` achieves 29x speedup over full `Detect()` on Karate Club + 1 node (ONLINE-08 ≥10x target)
+- `assertResultInvariants` helper + 6-case invariant test suite + `TestEgoSplittingConcurrentUpdate` — zero race reports under `go test -race`
+
+---
+
 ## v1.2 Overlapping Community Detection (Shipped: 2026-03-31)
 
 **Phases completed:** 4 phases, 6 plans, 2 tasks
