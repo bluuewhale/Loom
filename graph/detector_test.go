@@ -27,7 +27,7 @@ func TestNewLeiden_ReturnsCommunityDetector(t *testing.T) {
 
 // Test 3: NewLeiden.Detect returns nil error on a valid undirected graph.
 func TestNewLeiden_DetectReturnsError(t *testing.T) {
-	d := NewLeiden(LeidenOptions{Seed: 1})
+	d := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1})
 	g := NewGraph(false)
 	// Empty graph — no error expected (returns empty CommunityResult).
 	_, err := d.Detect(g)

@@ -23,7 +23,7 @@ func buildKarateClubLeiden() *Graph {
 // Seed=2 is used: yields 3 communities with Q=0.37 and NMI=0.72 against ground truth.
 func TestLeidenKarateClubAccuracy(t *testing.T) {
 	g := buildKarateClubLeiden()
-	det := NewLeiden(LeidenOptions{Seed: 2})
+	det := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -59,7 +59,7 @@ func TestLeidenKarateClubAccuracy(t *testing.T) {
 // is internally connected — the key correctness guarantee of the Leiden algorithm.
 func TestLeidenConnectedCommunities(t *testing.T) {
 	g := buildKarateClubLeiden()
-	det := NewLeiden(LeidenOptions{Seed: 2})
+	det := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -112,7 +112,7 @@ func TestLeidenConnectedCommunities(t *testing.T) {
 // TestLeidenEmptyGraph verifies empty graph returns empty partition with nil error.
 func TestLeidenEmptyGraph(t *testing.T) {
 	g := NewGraph(false)
-	det := NewLeiden(LeidenOptions{Seed: 1})
+	det := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -129,7 +129,7 @@ func TestLeidenEmptyGraph(t *testing.T) {
 func TestLeidenSingleNode(t *testing.T) {
 	g := NewGraph(false)
 	g.AddNode(NodeID(7), 1.0)
-	det := NewLeiden(LeidenOptions{Seed: 1})
+	det := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -168,7 +168,7 @@ func TestLeidenDisconnectedNodes(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		g.AddNode(NodeID(i), 1.0)
 	}
-	det := NewLeiden(LeidenOptions{Seed: 1})
+	det := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -189,7 +189,7 @@ func TestLeidenDisconnectedNodes(t *testing.T) {
 func TestLeidenTwoNodeGraph(t *testing.T) {
 	g := NewGraph(false)
 	g.AddEdge(NodeID(0), NodeID(1), 1.0)
-	det := NewLeiden(LeidenOptions{Seed: 1})
+	det := NewLeiden(LeidenOptions{Seed: 1, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -206,7 +206,7 @@ func TestLeidenTwoNodeGraph(t *testing.T) {
 // TestLeidenDeterministic verifies two runs with same Seed produce identical Q and community count.
 func TestLeidenDeterministic(t *testing.T) {
 	g := buildKarateClubLeiden()
-	opts := LeidenOptions{Seed: 2}
+	opts := LeidenOptions{Seed: 2, NumRuns: 1}
 	det := NewLeiden(opts)
 	res1, err1 := det.Detect(g)
 	res2, err2 := det.Detect(g)
