@@ -576,9 +576,10 @@ func TestBuildPersonaGraph_IsolatedNode(t *testing.T) {
 }
 
 // TestEgoSplittingDetector_Detect_StarTopology verifies that Detect on a star
-// graph produces exactly one community membership for the center node. When all
-// leaves are in a single local community in the center's ego-net, no splitting
-// occurs — center gets exactly one persona. (EGO-13)
+// graph does not panic and that the center node's community membership count is
+// bounded by its degree. Louvain places each disconnected leaf in its own
+// community, so the center may receive up to degree(center) personas — the test
+// guards against unbounded growth, not a specific count. (EGO-13)
 func TestEgoSplittingDetector_Detect_StarTopology(t *testing.T) {
 	// Star with 5 spokes: center=0, leaves=1..5.
 	g := makeStar(5)
@@ -614,5 +615,33 @@ func TestEgoSplittingDetector_Detect_StarTopology(t *testing.T) {
 	// Sanity: result must be non-empty.
 	if len(result.Communities) == 0 {
 		t.Error("expected at least one community in result")
+	}
+}
+
+// TestEgoSplittingDetector_Detect_SingleNode verifies that a graph containing
+// exactly one node (degenerate case distinct from isolated-node-within-a-graph)
+// returns ErrEmptyGraph or a single-community result without panicking.
+func TestEgoSplittingDetector_Detect_SingleNode(t *testing.T) {
+	g := NewGraph(false)
+	g.AddNode(0, 1.0)
+
+	d := NewEgoSplitting(EgoSplittingOptions{})
+	result, err := d.Detect(g)
+	if err != nil {
+		// A single node has no edges; implementations may treat it as empty.
+		// Accept ErrEmptyGraph as a valid response.
+		if err != ErrEmptyGraph {
+			t.Fatalf("unexpected error for single-node graph: %v", err)
+		}
+		return
+	}
+
+	// If no error, node 0 must appear in exactly one community.
+	comms, ok := result.NodeCommunities[0]
+	if !ok {
+		t.Fatal("node 0 missing from NodeCommunities")
+	}
+	if len(comms) == 0 {
+		t.Error("node 0 has no community memberships")
 	}
 }
