@@ -1,61 +1,57 @@
-# Requirements: loom v1.2 — Overlapping Community Detection (Ego Splitting Framework)
+# Requirements: loom v1.3 — Online Ego-Splitting
 
-**Milestone:** v1.2
+**Milestone:** v1.3
 **Status:** Active
-**Last updated:** 2026-03-30
+**Last updated:** 2026-03-31
 
 ---
 
-## Milestone v1.2 Requirements
+## Milestone v1.3 Requirements
 
-### Core API
+### Online API Contract
 
-- [x] **EGO-01**: Caller can use `OverlappingCommunityDetector` interface with `Detect(g *Graph) (OverlappingCommunityResult, error)` — distinct from existing `CommunityDetector`, zero breaking changes
-- [x] **EGO-02**: Caller can access overlapping result as `Communities [][]NodeID` (community-first) and `NodeCommunities map[NodeID][]int` (node-first O(1) lookup) from `OverlappingCommunityResult`
-- [x] **EGO-03**: Caller can configure `EgoSplittingOptions` with `LocalDetector CommunityDetector`, `GlobalDetector CommunityDetector`, and `Resolution float64` — both detectors default to Louvain if nil
-- [x] **EGO-07**: Caller can construct an `EgoSplittingDetector` via `NewEgoSplitting(opts EgoSplittingOptions)` that implements `OverlappingCommunityDetector`
+- [ ] **ONLINE-01**: Caller can construct a `GraphDelta` value describing node/edge additions: `AddedNodes []NodeID` and `AddedEdges []Edge`
+- [ ] **ONLINE-02**: Caller can invoke `Update(g *Graph, delta GraphDelta, prior OverlappingCommunityResult) (OverlappingCommunityResult, error)` on an `EgoSplittingDetector` to obtain an updated overlapping community result without full recomputation
+- [ ] **ONLINE-03**: Caller receives prior result unchanged (no recomputation) when `Update()` is called with an empty delta (`len(AddedNodes)==0 && len(AddedEdges)==0`)
+- [ ] **ONLINE-04**: Caller receives `ErrDirectedNotSupported` when `Update()` is called on a directed graph, matching the existing `Detect()` guard contract
 
-### Algorithm Implementation
+### Incremental Recomputation
 
-- [x] **EGO-04**: Caller can construct ego-net for each node u as `G[N(u)]` (neighbors only, u excluded) via Algorithm 1 using existing `g.Subgraph()` + `LocalDetector.Detect()`
-- [x] **EGO-05**: Caller can generate persona graph where each (node, local-community) pair becomes one persona node with disjoint PersonaID space `[N, N+P)` and deduplicated edge rewiring (Algorithm 2)
-- [x] **EGO-06**: Caller can recover overlapping community membership by running `GlobalDetector.Detect()` on persona graph and mapping persona assignments back to original nodes (Algorithm 3)
+- [ ] **ONLINE-05**: `Update()` recomputes ego-nets only for the set of affected nodes: new nodes plus all neighbors of edge endpoints — not all `n` ego-nets in the graph
+- [ ] **ONLINE-06**: `Update()` patches the persona graph incrementally — only personas of affected nodes are rebuilt; unaffected nodes' personas are carried over from the prior state
+- [ ] **ONLINE-07**: `Update()` warm-starts the global detection phase from the prior result's community partition, reusing the `InitialPartition` field on `GlobalDetector` options (v1.1 warm-start mechanism)
 
-### Accuracy Validation
+### Performance
 
-- [x] **EGO-08**: Caller can validate overlapping community quality using `OmegaIndex(result OverlappingCommunityResult, groundTruth [][]NodeID) float64`
-- [x] **EGO-09**: `EgoSplittingDetector` achieves Omega index ≥ 0.5 on Karate Club (34n), Football (115n), and Polbooks (105n) fixtures
+- [ ] **ONLINE-08**: `BenchmarkUpdate1Node` demonstrates that `Update()` with 1 added node runs ≥10x faster than `Detect()` on the same updated graph (baseline: Karate Club 34-node graph + 1 new node)
+- [ ] **ONLINE-09**: `BenchmarkUpdate1Edge` demonstrates that `Update()` with 1 added edge runs ≥10x faster than `Detect()` on the same updated graph (baseline: Karate Club + 1 new edge between existing nodes)
+- [ ] **ONLINE-10**: Parallel ego-net construction via goroutine pool reduces `BenchmarkEgoSplitting10K` from ~1500ms/op to ≤300ms/op (resolves v1.2 deferred performance gap)
 
-### Performance and Concurrency
+### Correctness and Safety
 
-- [x] **EGO-10**: `EgoSplittingDetector.Detect()` is concurrent-safe — `go test -race` passes
-- [x] **EGO-11**: `EgoSplittingDetector.Detect()` completes in ≤ 300ms on a 10,000-node graph (benchmark)
-
-### Edge Cases
-
-- [x] **EGO-12**: `EgoSplittingDetector` handles degree-0 nodes (isolated nodes assigned to their own singleton community without panic)
-- [x] **EGO-13**: `EgoSplittingDetector` handles nodes whose ego-net yields a single community (persona = original node, no splitting)
-- [x] **EGO-14**: `EgoSplittingDetector` returns a defined error on empty graph input
+- [ ] **ONLINE-11**: PersonaID allocation in `Update()` never collides with original `NodeID` space — new personas assigned from `maxExistingPersonaID + 1`, preserving the disjoint PersonaID invariant
+- [ ] **ONLINE-12**: `Update()` result satisfies all existing result invariants: every original node (including newly added ones) appears in at least one community; `NodeCommunities` and `Communities` are mutually consistent
+- [ ] **ONLINE-13**: `Update()` is concurrent-safe — `go test -race` passes on concurrent `Update()` calls on distinct detector instances
 
 ---
 
 ## Future Requirements (deferred)
 
-- Parallel ego-net detection via goroutine pool (defer until sequential correctness proven and benchmarks show gap)
-- Overlapping NMI (McDaid 2011 / `NMI_max`) — more complex than Omega index, defer to v1.3
-- Best-match F1 metric — defer to v1.3
-- LFR synthetic benchmark fixtures with known overlapping ground truth — defer to v1.3
-- `MaxPersonasPerNode` cap for star-topology graphs — defer until empirical profiling needed
+- Node/edge deletions in online mode — delta-minus path requires different affected-node logic; defer to v1.4
+- Overlapping NMI (McDaid 2011 / `NMI_max`) accuracy metric — more complex than Omega index; defer to v1.4
+- LFR synthetic benchmark fixtures with known overlapping ground truth — defer to v1.4
+- Streaming delta queue (multiple deltas applied sequentially without full recomputation chain) — defer to v1.4
+- `MaxPersonasPerNode` cap for star-topology graphs in incremental path — defer until empirical profiling shows need
 
 ---
 
 ## Out of Scope
 
-- Modifying existing `CommunityDetector`, `CommunityResult`, `LouvainDetector`, `LeidenDetector` — additive only
-- External dependencies — implementation uses stdlib + existing `package graph` only
-- Directed graph support for ego-nets — undirected only in v1.2
-- Visualization of overlapping communities — external tooling responsibility
-- Persistence / serialization of `OverlappingCommunityResult` — in-memory only
+- Node/edge deletions — only additions supported in v1.3
+- Modifying existing `Detect()` behavior — `Update()` is purely additive; zero breaking changes to v1.2 API
+- External dependencies — stdlib only; no new imports
+- Directed graph incremental support — undirected only, same constraint as `Detect()`
+- Persistence of delta history — stateless Update(); prior result is the only state the caller must retain
 
 ---
 
@@ -63,17 +59,16 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| EGO-01 | Phase 06 | Complete |
-| EGO-02 | Phase 06 | Complete |
-| EGO-03 | Phase 06 | Complete |
-| EGO-07 | Phase 06 | Complete |
-| EGO-04 | Phase 07 | Complete |
-| EGO-05 | Phase 07 | Complete |
-| EGO-06 | Phase 07 | Complete |
-| EGO-08 | Phase 08 | Complete |
-| EGO-09 | Phase 08 | Complete |
-| EGO-10 | Phase 08 | Complete |
-| EGO-11 | Phase 08 | Complete |
-| EGO-12 | Phase 09 | Complete |
-| EGO-13 | Phase 09 | Complete |
-| EGO-14 | Phase 09 | Complete |
+| ONLINE-01 | TBD | Planned |
+| ONLINE-02 | TBD | Planned |
+| ONLINE-03 | TBD | Planned |
+| ONLINE-04 | TBD | Planned |
+| ONLINE-05 | TBD | Planned |
+| ONLINE-06 | TBD | Planned |
+| ONLINE-07 | TBD | Planned |
+| ONLINE-08 | TBD | Planned |
+| ONLINE-09 | TBD | Planned |
+| ONLINE-10 | TBD | Planned |
+| ONLINE-11 | TBD | Planned |
+| ONLINE-12 | TBD | Planned |
+| ONLINE-13 | TBD | Planned |
