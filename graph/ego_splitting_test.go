@@ -1051,7 +1051,7 @@ func TestBuildPersonaGraphIncremental_CarriesOverUnaffected(t *testing.T) {
 
 	affected := computeAffected(g, delta)
 
-	_, newPersonaOf, _, _, _, err := buildPersonaGraphIncremental(
+	_, newPersonaOf, _, _, _, _, err := buildPersonaGraphIncremental(
 		g, affected, prior, NewLouvain(LouvainOptions{Seed: 42}),
 	)
 	if err != nil {
@@ -1113,7 +1113,7 @@ func TestBuildPersonaGraphIncremental_PersonaIDAboveMax(t *testing.T) {
 	affected := computeAffected(g, delta)
 
 	// Collect all new PersonaIDs assigned to affected nodes.
-	_, newPersonaOf, newInverseMap, _, _, err := buildPersonaGraphIncremental(
+	_, newPersonaOf, newInverseMap, _, _, _, err := buildPersonaGraphIncremental(
 		g, affected, prior, NewLouvain(LouvainOptions{Seed: 42}),
 	)
 	if err != nil {
