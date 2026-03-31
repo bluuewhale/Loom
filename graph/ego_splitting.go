@@ -195,8 +195,13 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 // If delta is empty (no added nodes or edges), prior is returned unchanged with
 // zero additional allocations. Returns ErrDirectedNotSupported if g is directed.
 //
-// NOTE: In Phase 10 the non-empty-delta path falls back to a full Detect() call.
-// Phase 11 will replace this with incremental recomputation.
+// For non-empty deltas, Update performs incremental recomputation:
+//   - Only affected nodes' ego-nets are recomputed (ONLINE-05)
+//   - Unaffected nodes' PersonaIDs carry over from prior (ONLINE-06)
+//   - New PersonaIDs are allocated above max(prior, g.Nodes()) (ONLINE-11)
+//   - Global detection is warm-started from prior persona partition (ONLINE-07)
+//
+// If prior lacks carry-forward fields (nil personaOf), falls back to Detect().
 func (d *egoSplittingDetector) Update(
 	g *Graph,
 	delta GraphDelta,
@@ -208,8 +213,83 @@ func (d *egoSplittingDetector) Update(
 	if len(delta.AddedNodes) == 0 && len(delta.AddedEdges) == 0 {
 		return prior, nil
 	}
-	// TODO(Phase 11): replace with incremental recomputation.
-	return d.Detect(g)
+	// Graceful fallback if prior lacks carry-forward fields.
+	if prior.personaOf == nil || prior.inverseMap == nil || prior.partitions == nil {
+		return d.Detect(g)
+	}
+
+	// Step 1: Compute affected node set (ONLINE-05).
+	affected := computeAffected(g, delta)
+
+	// Step 2: Incremental persona graph build (ONLINE-06, ONLINE-11).
+	personaGraph, newPersonaOf, newInverseMap, newPartitions, warmPartition, err :=
+		buildPersonaGraphIncremental(g, affected, prior, d.opts.LocalDetector)
+	if err != nil {
+		return OverlappingCommunityResult{}, err
+	}
+
+	// Step 3: Warm-start global detection (ONLINE-07).
+	warmGlobal := warmStartedDetector(d.opts.GlobalDetector, warmPartition)
+	globalResult, err := warmGlobal.Detect(personaGraph)
+	if err != nil {
+		return OverlappingCommunityResult{}, err
+	}
+
+	// Step 4: Map personas back to original nodes (Algorithm 3).
+	nodeCommunities := mapPersonasToOriginal(globalResult.Partition, newInverseMap)
+
+	// Step 4b: Deduplicate community IDs per node (same as Detect).
+	for node, comms := range nodeCommunities {
+		seen := make(map[int]struct{}, len(comms))
+		unique := comms[:0]
+		for _, c := range comms {
+			if _, ok := seen[c]; !ok {
+				seen[c] = struct{}{}
+				unique = append(unique, c)
+			}
+		}
+		nodeCommunities[node] = unique
+	}
+
+	// Step 5: Build Communities [][]NodeID (same as Detect).
+	maxComm := -1
+	for _, comms := range nodeCommunities {
+		for _, c := range comms {
+			if c > maxComm {
+				maxComm = c
+			}
+		}
+	}
+	communities := make([][]NodeID, maxComm+1)
+	for node, comms := range nodeCommunities {
+		for _, c := range comms {
+			communities[c] = append(communities[c], node)
+		}
+	}
+	var filtered [][]NodeID
+	commRemap := make(map[int]int)
+	for i, members := range communities {
+		if len(members) > 0 {
+			commRemap[i] = len(filtered)
+			filtered = append(filtered, members)
+		}
+	}
+	for node, comms := range nodeCommunities {
+		remapped := make([]int, len(comms))
+		for j, c := range comms {
+			remapped[j] = commRemap[c]
+		}
+		nodeCommunities[node] = remapped
+	}
+
+	return OverlappingCommunityResult{
+		Communities:      filtered,
+		NodeCommunities:  nodeCommunities,
+		personaOf:        newPersonaOf,
+		inverseMap:       newInverseMap,
+		partitions:       newPartitions,
+		personaPartition: globalResult.Partition,
+	}, nil
 }
 
 // warmStartedDetector constructs a new CommunityDetector with the same

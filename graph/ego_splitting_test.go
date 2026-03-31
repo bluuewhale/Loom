@@ -1160,6 +1160,292 @@ func TestBuildPersonaGraphIncremental_PersonaIDAboveMax(t *testing.T) {
 	}
 }
 
+// --- Update() incremental tests: ONLINE-05, ONLINE-06, ONLINE-07, ONLINE-11 / Phase 11-02 ---
+
+// countingDetector is a test spy that wraps a CommunityDetector and counts Detect calls.
+type countingDetector struct {
+	inner CommunityDetector
+	count int
+}
+
+func (c *countingDetector) Detect(g *Graph) (CommunityResult, error) {
+	c.count++
+	return c.inner.Detect(g)
+}
+
+// TestUpdate_AffectedNodesOnly verifies that Update only recomputes ego-nets for
+// affected nodes, not all nodes. (ONLINE-05)
+func TestUpdate_AffectedNodesOnly(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+
+	spy := &countingDetector{inner: NewLouvain(LouvainOptions{Seed: 42})}
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  spy,
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	prior, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	// Reset counter after initial Detect.
+	spy.count = 0
+
+	// Add node 34 with one edge to node 0.
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	_, err = det.Update(g, delta, prior)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+
+	// Compute expected affected set size.
+	affected := computeAffected(g, delta)
+	if spy.count != len(affected) {
+		t.Errorf("LocalDetector.Detect called %d times, want %d (len(affected))",
+			spy.count, len(affected))
+	}
+	// Sanity: must be less than all nodes (35) — proves incremental behavior.
+	if spy.count >= g.NodeCount() {
+		t.Errorf("LocalDetector.Detect called for all %d nodes — not incremental", g.NodeCount())
+	}
+}
+
+// TestUpdate_UnaffectedPersonasCarriedOver verifies that PersonaIDs for nodes
+// outside the affected set are identical between prior and result. (ONLINE-06)
+func TestUpdate_UnaffectedPersonasCarriedOver(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	prior, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	result, err := det.Update(g, delta, prior)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+
+	affected := computeAffected(g, delta)
+
+	// For every unaffected node, PersonaIDs must be unchanged.
+	for v, priorPersonas := range prior.personaOf {
+		if _, isAffected := affected[v]; isAffected {
+			continue
+		}
+		resultPersonas, ok := result.personaOf[v]
+		if !ok {
+			t.Errorf("unaffected node %d missing from result.personaOf", v)
+			continue
+		}
+		for commID, personaID := range priorPersonas {
+			if resultPersonas[commID] != personaID {
+				t.Errorf("unaffected node %d community %d: PersonaID changed from %d to %d",
+					v, commID, personaID, resultPersonas[commID])
+			}
+		}
+	}
+}
+
+// TestUpdate_PersonaIDDisjoint verifies that newly allocated PersonaIDs in Update
+// do not collide with NodeIDs in the updated graph or with prior PersonaIDs.
+// (ONLINE-11: new IDs allocated above max(prior inverseMap keys, g.Nodes()))
+func TestUpdate_PersonaIDDisjoint(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	prior, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	result, err := det.Update(g, delta, prior)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+
+	// Build sets for fast lookup.
+	nodeSet := make(map[NodeID]struct{})
+	for _, id := range g.Nodes() {
+		nodeSet[id] = struct{}{}
+	}
+
+	// Newly allocated PersonaIDs (not in prior) must not collide with NodeIDs.
+	for pID := range result.inverseMap {
+		if _, wasPrior := prior.inverseMap[pID]; wasPrior {
+			continue // carried over — allowed
+		}
+		if _, collides := nodeSet[pID]; collides {
+			t.Errorf("new PersonaID %d collides with NodeID in updated graph", pID)
+		}
+	}
+
+	// Also verify no new PersonaID equals an old (deleted) affected PersonaID.
+	affected := computeAffected(g, delta)
+	deletedPersonaIDs := make(map[NodeID]struct{})
+	for v := range affected {
+		for _, pID := range prior.personaOf[v] {
+			deletedPersonaIDs[pID] = struct{}{}
+		}
+	}
+	for pID := range result.inverseMap {
+		if _, wasPrior := prior.inverseMap[pID]; wasPrior {
+			continue
+		}
+		if _, wasDeleted := deletedPersonaIDs[pID]; wasDeleted {
+			t.Errorf("new PersonaID %d reuses a deleted affected PersonaID", pID)
+		}
+	}
+}
+
+// TestUpdate_WarmStartGlobalDetection verifies that after Update on Karate Club
+// + 1 new node, all 35 nodes appear in the result. (ONLINE-07)
+func TestUpdate_WarmStartGlobalDetection(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	prior, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	result, err := det.Update(g, delta, prior)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+
+	// All 35 nodes must appear in NodeCommunities.
+	for i := NodeID(0); i <= 34; i++ {
+		if _, ok := result.NodeCommunities[i]; !ok {
+			t.Errorf("node %d missing from NodeCommunities after Update", i)
+		}
+	}
+
+	if len(result.Communities) == 0 {
+		t.Error("expected at least one community after Update")
+	}
+}
+
+// TestUpdate_NilCarryForwardFallback verifies that Update with nil carry-forward
+// fields in prior falls back to Detect() gracefully without panic.
+func TestUpdate_NilCarryForwardFallback(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+
+	// prior with nil carry-forward fields (zero-value result).
+	prior := OverlappingCommunityResult{}
+
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	result, err := det.Update(g, delta, prior)
+	if err != nil {
+		t.Fatalf("Update error with nil carry-forward fields: %v", err)
+	}
+	if len(result.Communities) == 0 {
+		t.Error("expected at least one community after fallback Detect")
+	}
+}
+
+// TestUpdate_MultipleSequentialUpdates verifies that 3 sequential Updates
+// maintain all-nodes-present and that newly allocated PersonaIDs (for affected
+// nodes) never collide with NodeIDs in the updated graph.
+func TestUpdate_MultipleSequentialUpdates(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	result, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	for step := 0; step < 3; step++ {
+		newNode := NodeID(34 + step)
+		prevInverseMap := result.inverseMap // snapshot prior PersonaIDs
+		g.AddNode(newNode, 1.0)
+		g.AddEdge(0, newNode, 1.0)
+		delta := GraphDelta{
+			AddedNodes: []NodeID{newNode},
+			AddedEdges: []DeltaEdge{{From: 0, To: newNode, Weight: 1.0}},
+		}
+
+		result, err = det.Update(g, delta, result)
+		if err != nil {
+			t.Fatalf("Update step %d error: %v", step, err)
+		}
+
+		// All nodes 0..newNode must be present.
+		for i := NodeID(0); i <= newNode; i++ {
+			if _, ok := result.NodeCommunities[i]; !ok {
+				t.Errorf("step %d: node %d missing from NodeCommunities", step, i)
+			}
+		}
+
+		// Newly allocated PersonaIDs (present in result but not in prior) must
+		// not collide with NodeIDs in the updated graph.
+		nodeSet := make(map[NodeID]struct{})
+		for _, id := range g.Nodes() {
+			nodeSet[id] = struct{}{}
+		}
+		for pID := range result.inverseMap {
+			if _, wasPrior := prevInverseMap[pID]; wasPrior {
+				continue // old PersonaID carried over — skip
+			}
+			// This is a newly allocated PersonaID.
+			if _, collides := nodeSet[pID]; collides {
+				t.Errorf("step %d: new PersonaID %d collides with NodeID space", step, pID)
+			}
+		}
+	}
+}
+
 // BenchmarkUpdate_EmptyDelta measures allocations for Update with an empty delta.
 // Expected: 0 allocs/op (prior is returned as-is). (ONLINE-03)
 func BenchmarkUpdate_EmptyDelta(b *testing.B) {
