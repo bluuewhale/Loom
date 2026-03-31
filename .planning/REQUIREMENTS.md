@@ -17,8 +17,8 @@
 
 ### Incremental Recomputation
 
-- [ ] **ONLINE-05**: `Update()` recomputes ego-nets only for the set of affected nodes: new nodes plus all neighbors of edge endpoints — not all `n` ego-nets in the graph
-- [ ] **ONLINE-06**: `Update()` patches the persona graph incrementally — only personas of affected nodes are rebuilt; unaffected nodes' personas are carried over from the prior state
+- [x] **ONLINE-05**: `Update()` recomputes ego-nets only for the set of affected nodes: new nodes plus all neighbors of edge endpoints — not all `n` ego-nets in the graph
+- [x] **ONLINE-06**: `Update()` patches the persona graph incrementally — only personas of affected nodes are rebuilt; unaffected nodes' personas are carried over from the prior state
 - [x] **ONLINE-07**: `Update()` warm-starts the global detection phase from the prior result's community partition, reusing the `InitialPartition` field on `GlobalDetector` options (v1.1 warm-start mechanism)
 
 ### Performance
@@ -29,7 +29,7 @@
 
 ### Correctness and Safety
 
-- [ ] **ONLINE-11**: PersonaID allocation in `Update()` never collides with original `NodeID` space — new personas assigned from `maxExistingPersonaID + 1`, preserving the disjoint PersonaID invariant
+- [x] **ONLINE-11**: PersonaID allocation in `Update()` never collides with original `NodeID` space — new personas assigned from `maxExistingPersonaID + 1`, preserving the disjoint PersonaID invariant
 - [ ] **ONLINE-12**: `Update()` result satisfies all existing result invariants: every original node (including newly added ones) appears in at least one community; `NodeCommunities` and `Communities` are mutually consistent
 - [ ] **ONLINE-13**: `Update()` is concurrent-safe — `go test -race` passes on concurrent `Update()` calls on distinct detector instances
 
