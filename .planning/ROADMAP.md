@@ -71,3 +71,13 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 11: Incremental Recomputation Core | v1.3 | 2/2 | Complete | 2026-03-31 |
 | 12: Parallel Ego-Net Construction and Performance | v1.3 | 2/2 | Complete | 2026-03-31 |
 | 13: Correctness Hardening and Race Safety | v1.3 | 1/1 | Complete | 2026-03-31 |
+
+### Phase 14: reset() warm-start 최적화 — Louvain·Leiden commStr 전체 재계산 제거, affected 노드만 delta 패치
+
+**Goal:** Eliminate sorted-node-slice and commStr full-rebuild bottlenecks in louvainState.reset() and leidenState.reset() warm-start paths; reduce BenchmarkEgoSplittingUpdate1Node1Edge from ~175ms/op to ≤150ms/op.
+**Requirements**: RESET-OPT-01, RESET-OPT-02
+**Depends on:** Phase 13
+**Plans:** 1 plan
+
+Plans:
+- [ ] 14-01-PLAN.md — Sorted-node cache + commStr delta patch in louvainState and leidenState; regression guard test
