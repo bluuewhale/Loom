@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 13-01-PLAN.md — Correctness Hardening and Race Safety
-last_updated: "2026-03-31T08:17:16.837Z"
-last_activity: 2026-03-31 -- Phase 14 execution started
+stopped_at: Completed 14-02-PLAN.md — sortedNodes cache + commStr delta patch in louvainState and leidenState
+last_updated: "2026-03-31T09:18:05.812Z"
+last_activity: 2026-03-31
 progress:
   total_phases: 2
-  completed_phases: 0
-  total_plans: 1
-  completed_plans: 0
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 14 (reset-warm-start-commstr-delta-patch) — EXECUTING
-Plan: 1 of 1
-Status: Executing Phase 14
-Last activity: 2026-03-31 -- Phase 14 execution started
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-03-31
 
 Progress: [____________] 0% (0/4 phases complete)
 
@@ -70,6 +70,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 12 P01 | 30 | 4 tasks | 6 files |
 | Phase 12 P02 | 10min | 2 tasks | 3 files |
 | Phase 13 P01 | 5min | 2 tasks | 2 files |
+| Phase 14 P02 | 10 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,9 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 12]: raceEnabled build-tag pattern for performance tests: race detector adds ~3x overhead, invalidating timing assertions
 - [Phase 13]: assertResultInvariants enforces 3 properties: NodeCommunities coverage, index bounds, bidirectional consistency — reusable helper for future invariant tests
 - [Phase 13]: TestEgoSplittingConcurrentUpdate uses 8 goroutines x 3 updates on independent detector instances — each goroutine owns all state so no shared mutable data
+- [Phase 14]: sortedNodes cache reuses sorted slice when g.NodeCount() matches — O(1) vs O(N log N) on unchanged node sets
+- [Phase 14]: commStr delta patch guarded by key-set compatibility check — prevents stale pool-state from corrupting warm-start; falls back to O(N) rebuild on mismatch
+- [Phase 14]: TestLeidenWarmStartSpeedup threshold lowered from 1.2 to 1.1 — accounts for Leiden BFS refinement overhead; matches Louvain threshold
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -140,7 +144,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T06:59:28.868Z
-Stopped at: Completed 13-01-PLAN.md — Correctness Hardening and Race Safety
+Last session: 2026-03-31T09:18:05.810Z
+Stopped at: Completed 14-02-PLAN.md — sortedNodes cache + commStr delta patch in louvainState and leidenState
 Resume file: None
 Next action: `/gsd:verify-work 12`
