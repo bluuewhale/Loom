@@ -2,9 +2,6 @@ package graph
 
 import "errors"
 
-// ErrNotImplemented is returned by Detect until the Ego Splitting algorithm is implemented.
-var ErrNotImplemented = errors.New("ego splitting: not implemented")
-
 // ErrEmptyGraph is returned when Detect is called on a graph with no nodes.
 var ErrEmptyGraph = errors.New("ego splitting: empty graph")
 
@@ -26,6 +23,10 @@ type OverlappingCommunityResult struct {
 //   - LocalDetector nil -> Louvain with default options
 //   - GlobalDetector nil -> Louvain with default options
 //   - Resolution 0.0 -> 1.0
+//
+// Note: Resolution is stored for reference but is not automatically propagated
+// to the default-constructed Louvain detectors. To use a custom resolution,
+// supply a pre-configured detector via LocalDetector and/or GlobalDetector.
 type EgoSplittingOptions struct {
 	LocalDetector  CommunityDetector
 	GlobalDetector CommunityDetector
@@ -176,7 +177,7 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 	// partitions[v] holds the ego-net partition for v: neighbor -> community ID in G_v
 	partitions := make(map[NodeID]map[NodeID]int)
 
-	// Step 3: for each node v, build ego-net and assign persona nodes
+	// Step 2: for each node v, build ego-net and assign persona nodes
 	for _, v := range g.Nodes() {
 		personaOf[v] = make(map[int]NodeID)
 
@@ -282,7 +283,10 @@ func mapPersonasToOriginal(
 ) map[NodeID][]int {
 	result := make(map[NodeID][]int)
 	for personaID, commID := range globalPartition {
-		origNode := inverseMap[personaID]
+		origNode, ok := inverseMap[personaID]
+		if !ok {
+			continue
+		}
 		result[origNode] = append(result[origNode], commID)
 	}
 	return result
