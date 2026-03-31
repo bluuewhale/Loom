@@ -150,7 +150,7 @@ Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs.
 | 10K nodes | **loom** | Louvain | ~63ms | ~22 | **~46x vs Python, ~37x vs gonum** |
 | 10K nodes | **loom** | Leiden | ~65ms | ~22 | |
 | 10K nodes | gonum² | Louvain | ~2.3s | ~22 | `community.Modularize`, general-purpose |
-| 10K nodes | go-louvain³ | Louvain (1 pass) | ~10ms | ~4,300 | single phase — not quality-comparable |
+| 10K nodes | go-louvain³ | Louvain | ~21ms | ~101 | converges but no supergraph compression — lower quality than loom/gonum |
 | 10K nodes | leiden-go⁴ | Leiden | N/A | N/A | infinite loop bug on large graphs |
 | 10K nodes | python-louvain¹ | Louvain | ~2,889ms | — | |
 
@@ -158,7 +158,7 @@ Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs.
 
 ² `scripts/go-compare/`: **gonum v0.17** (`community.Modularize`). Correct implementation; loom trades generality for tight inner loop + `sync.Pool` reuse.
 
-³ `github.com/ledyba/go-louvain`: runs only a single Louvain pass with no supergraph compression — produces ~4,300 communities vs loom's ~22 on the same graph.
+³ `github.com/ledyba/go-louvain`: `NextLevel()` runs one Louvain phase + supergraph compression step. Running to convergence (repeated calls until node count stabilises) takes ~21ms and yields ~101 communities — loom's multi-level compression achieves ~22 communities at ~63ms.
 
 ⁴ `github.com/vsuryav/leiden-go`: skipped — `refinePartition` sets `improved=true` unconditionally, causing an infinite loop on large random graphs.
 
