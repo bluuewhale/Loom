@@ -186,7 +186,7 @@ func TestBuildPersonaGraph_Triangle(t *testing.T) {
 	g := makeTriangle()
 	localDetector := NewLouvain(LouvainOptions{})
 
-	personaGraph, personaOf, inverseMap, err := buildPersonaGraph(g, localDetector)
+	personaGraph, personaOf, inverseMap, _, err := buildPersonaGraph(g, localDetector)
 	if err != nil {
 		t.Fatalf("buildPersonaGraph error: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestBuildPersonaGraph_Barbell(t *testing.T) {
 	g := makeBarbell()
 	localDetector := NewLouvain(LouvainOptions{})
 
-	personaGraph, _, inverseMap, err := buildPersonaGraph(g, localDetector)
+	personaGraph, _, inverseMap, _, err := buildPersonaGraph(g, localDetector)
 	if err != nil {
 		t.Fatalf("buildPersonaGraph error: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestBuildPersonaGraph_PersonaIDsDisjoint(t *testing.T) {
 	g := makeTriangle()
 	localDetector := NewLouvain(LouvainOptions{})
 
-	_, _, inverseMap, err := buildPersonaGraph(g, localDetector)
+	_, _, inverseMap, _, err := buildPersonaGraph(g, localDetector)
 	if err != nil {
 		t.Fatalf("buildPersonaGraph error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestMapPersonasToOriginal_Bijective(t *testing.T) {
 	g := makeTriangle()
 	localDetector := NewLouvain(LouvainOptions{})
 
-	personaGraph, _, inverseMap, err := buildPersonaGraph(g, localDetector)
+	personaGraph, _, inverseMap, _, err := buildPersonaGraph(g, localDetector)
 	if err != nil {
 		t.Fatalf("buildPersonaGraph error: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestPersonaGraphKarateClub_OverlappingMembership(t *testing.T) {
 
 	// Step 1: build persona graph with seeded Louvain as local detector.
 	local := NewLouvain(LouvainOptions{Seed: 42})
-	personaGraph, _, inverseMap, err := buildPersonaGraph(g, local)
+	personaGraph, _, inverseMap, _, err := buildPersonaGraph(g, local)
 	if err != nil {
 		t.Fatalf("buildPersonaGraph error: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestPersonaGraphKarateClub_AllNodesAccountedFor(t *testing.T) {
 	g := buildGraph(testdata.KarateClubEdges)
 
 	local := NewLouvain(LouvainOptions{Seed: 42})
-	personaGraph, _, inverseMap, err := buildPersonaGraph(g, local)
+	personaGraph, _, inverseMap, _, err := buildPersonaGraph(g, local)
 	if err != nil {
 		t.Fatalf("buildPersonaGraph error: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestBuildPersonaGraph_IsolatedNode(t *testing.T) {
 	g.AddEdge(0, 1, 1.0)
 	g.AddNode(2, 1.0) // isolated
 
-	_, personaOf, inverseMap, err := buildPersonaGraph(g, NewLouvain(LouvainOptions{Seed: 1}))
+	_, personaOf, inverseMap, _, err := buildPersonaGraph(g, NewLouvain(LouvainOptions{Seed: 1}))
 	if err != nil {
 		t.Fatalf("buildPersonaGraph error: %v", err)
 	}
@@ -734,6 +734,201 @@ func TestEgoSplittingDetector_Update_NonEmptyDelta_Placeholder(t *testing.T) {
 		if _, ok := result.NodeCommunities[id]; !ok {
 			t.Errorf("node %d missing from NodeCommunities after non-empty-delta Update", id)
 		}
+	}
+}
+
+// --- Carry-forward field tests: ONLINE-07 / Phase 11 ---
+
+// TestDetect_PopulatesCarryForwardFields verifies that Detect() populates all
+// four unexported carry-forward fields on OverlappingCommunityResult so that
+// Update() can perform incremental recomputation in Phase 11-02.
+func TestDetect_PopulatesCarryForwardFields(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+
+	det := NewEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	result, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	// personaOf must be non-nil and have entries for all 34 original nodes.
+	if result.personaOf == nil {
+		t.Fatal("result.personaOf is nil after Detect")
+	}
+	if len(result.personaOf) != 34 {
+		t.Errorf("result.personaOf has %d entries, want 34", len(result.personaOf))
+	}
+	for i := NodeID(0); i < 34; i++ {
+		if _, ok := result.personaOf[i]; !ok {
+			t.Errorf("node %d missing from result.personaOf", i)
+		}
+	}
+
+	// inverseMap must be non-nil; all PersonaIDs must be >= 34 (original range 0-33).
+	if result.inverseMap == nil {
+		t.Fatal("result.inverseMap is nil after Detect")
+	}
+	for personaID := range result.inverseMap {
+		if personaID < 34 {
+			t.Errorf("PersonaID %d in inverseMap collides with original node range [0,34)", personaID)
+		}
+	}
+
+	// partitions must be non-nil and have entries for all 34 original nodes.
+	if result.partitions == nil {
+		t.Fatal("result.partitions is nil after Detect")
+	}
+	if len(result.partitions) != 34 {
+		t.Errorf("result.partitions has %d entries, want 34", len(result.partitions))
+	}
+	for i := NodeID(0); i < 34; i++ {
+		if _, ok := result.partitions[i]; !ok {
+			t.Errorf("node %d missing from result.partitions", i)
+		}
+	}
+
+	// personaPartition must be non-nil and have len(inverseMap) entries
+	// (one entry per persona node in the persona graph).
+	if result.personaPartition == nil {
+		t.Fatal("result.personaPartition is nil after Detect")
+	}
+	if len(result.personaPartition) != len(result.inverseMap) {
+		t.Errorf("result.personaPartition has %d entries, want %d (len(inverseMap))",
+			len(result.personaPartition), len(result.inverseMap))
+	}
+}
+
+// TestDetect_CarryForwardNilFallback confirms that a zero-value
+// OverlappingCommunityResult has nil carry-forward fields — enabling
+// Update() to detect a cold-start (no prior incremental state).
+func TestDetect_CarryForwardNilFallback(t *testing.T) {
+	r := OverlappingCommunityResult{}
+	if r.personaOf != nil {
+		t.Error("expected personaOf nil on zero-value result")
+	}
+	if r.inverseMap != nil {
+		t.Error("expected inverseMap nil on zero-value result")
+	}
+	if r.partitions != nil {
+		t.Error("expected partitions nil on zero-value result")
+	}
+	if r.personaPartition != nil {
+		t.Error("expected personaPartition nil on zero-value result")
+	}
+}
+
+// --- warmStartedDetector tests: ONLINE-07 / Phase 11-01 ---
+
+// TestWarmStartedDetector_Louvain verifies that warmStartedDetector on a
+// *louvainDetector returns a new *louvainDetector with InitialPartition set
+// and all other options preserved.
+func TestWarmStartedDetector_Louvain(t *testing.T) {
+	base := NewLouvain(LouvainOptions{
+		Seed:       42,
+		Resolution: 1.5,
+		MaxPasses:  10,
+		Tolerance:  1e-6,
+	})
+	partition := map[NodeID]int{0: 1, 1: 2, 2: 1}
+
+	result := warmStartedDetector(base, partition)
+
+	got, ok := result.(*louvainDetector)
+	if !ok {
+		t.Fatalf("warmStartedDetector did not return *louvainDetector, got %T", result)
+	}
+	if got.opts.Seed != 42 {
+		t.Errorf("Seed = %d, want 42", got.opts.Seed)
+	}
+	if got.opts.Resolution != 1.5 {
+		t.Errorf("Resolution = %v, want 1.5", got.opts.Resolution)
+	}
+	if got.opts.MaxPasses != 10 {
+		t.Errorf("MaxPasses = %d, want 10", got.opts.MaxPasses)
+	}
+	if got.opts.Tolerance != 1e-6 {
+		t.Errorf("Tolerance = %v, want 1e-6", got.opts.Tolerance)
+	}
+	if len(got.opts.InitialPartition) != len(partition) {
+		t.Errorf("InitialPartition len = %d, want %d", len(got.opts.InitialPartition), len(partition))
+	}
+	for k, v := range partition {
+		if got.opts.InitialPartition[k] != v {
+			t.Errorf("InitialPartition[%d] = %d, want %d", k, got.opts.InitialPartition[k], v)
+		}
+	}
+}
+
+// TestWarmStartedDetector_Leiden verifies that warmStartedDetector on a
+// *leidenDetector returns a new *leidenDetector with InitialPartition set
+// and all other options preserved.
+func TestWarmStartedDetector_Leiden(t *testing.T) {
+	base := NewLeiden(LeidenOptions{
+		Seed:          7,
+		Resolution:    2.0,
+		MaxIterations: 20,
+		Tolerance:     1e-5,
+	})
+	partition := map[NodeID]int{0: 0, 1: 0, 2: 1}
+
+	result := warmStartedDetector(base, partition)
+
+	got, ok := result.(*leidenDetector)
+	if !ok {
+		t.Fatalf("warmStartedDetector did not return *leidenDetector, got %T", result)
+	}
+	if got.opts.Seed != 7 {
+		t.Errorf("Seed = %d, want 7", got.opts.Seed)
+	}
+	if got.opts.Resolution != 2.0 {
+		t.Errorf("Resolution = %v, want 2.0", got.opts.Resolution)
+	}
+	if got.opts.MaxIterations != 20 {
+		t.Errorf("MaxIterations = %d, want 20", got.opts.MaxIterations)
+	}
+	if got.opts.Tolerance != 1e-5 {
+		t.Errorf("Tolerance = %v, want 1e-5", got.opts.Tolerance)
+	}
+	if len(got.opts.InitialPartition) != len(partition) {
+		t.Errorf("InitialPartition len = %d, want %d", len(got.opts.InitialPartition), len(partition))
+	}
+}
+
+// TestWarmStartedDetector_NilPartition verifies that warmStartedDetector with
+// a nil partition produces a detector with nil InitialPartition (cold start).
+func TestWarmStartedDetector_NilPartition(t *testing.T) {
+	base := NewLouvain(LouvainOptions{Seed: 1})
+	result := warmStartedDetector(base, nil)
+
+	got, ok := result.(*louvainDetector)
+	if !ok {
+		t.Fatalf("warmStartedDetector did not return *louvainDetector, got %T", result)
+	}
+	if got.opts.InitialPartition != nil {
+		t.Errorf("expected InitialPartition nil for nil partition, got %v", got.opts.InitialPartition)
+	}
+}
+
+// TestWarmStartedDetector_DoesNotMutateOriginal verifies that calling
+// warmStartedDetector does not modify the input detector's options.
+func TestWarmStartedDetector_DoesNotMutateOriginal(t *testing.T) {
+	base := NewLouvain(LouvainOptions{Seed: 99})
+	original, ok := base.(*louvainDetector)
+	if !ok {
+		t.Fatal("base is not *louvainDetector")
+	}
+	if original.opts.InitialPartition != nil {
+		t.Fatal("precondition: original InitialPartition should be nil")
+	}
+
+	partition := map[NodeID]int{0: 1}
+	warmStartedDetector(base, partition)
+
+	if original.opts.InitialPartition != nil {
+		t.Error("warmStartedDetector mutated the original detector's InitialPartition")
 	}
 }
 

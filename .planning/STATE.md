@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
+milestone: v1.3
+milestone_name: Online Ego-Splitting
 status: verifying
-stopped_at: "Completed 10-01-PLAN.md — Online API Contract: GraphDelta, OnlineOverlappingCommunityDetector, Update()"
-last_updated: "2026-03-31T05:06:14.284Z"
-last_activity: 2026-03-30
+stopped_at: Completed 11-01-PLAN.md — carry-forward fields + warmStartedDetector helper
+last_updated: "2026-03-31T05:30:24.551Z"
+last_activity: 2026-03-31
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 2
   percent: 0
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 09
+Phase: 11
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-03-30
+Last activity: 2026-03-31
 
 Progress: [____________] 0% (0/4 phases complete)
 
@@ -65,6 +65,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 08-full-detect-pipeline-accuracy-performance P02 | 5 min | 2 tasks | 2 files |
 | Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
 | Phase 10-online-api-contract P01 | 1min | 1 tasks | 2 files |
+| Phase 11-incremental-recomputation-core P01 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,8 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 10-online-api-contract]: Update() empty-delta returns prior by value with 0 allocs (no deep-copy)
 - [Phase 10-online-api-contract]: NewOnlineEgoSplitting reuses *egoSplittingDetector — no new struct needed
 - [Phase 10-online-api-contract]: Non-empty delta falls back to Detect() in Phase 10; Phase 11 replaces with incremental recomputation
+- [Phase 11-incremental-recomputation-core]: buildPersonaGraph returns partitions as 4th value — exposes ego-net partitions to Detect() carry-forward without a separate pass
+- [Phase 11-incremental-recomputation-core]: warmStartedDetector falls back to d for unknown types — safe extension point for future detector implementations
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -121,7 +124,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T05:06:14.281Z
-Stopped at: Completed 10-01-PLAN.md — Online API Contract: GraphDelta, OnlineOverlappingCommunityDetector, Update()
+Last session: 2026-03-31T05:30:24.548Z
+Stopped at: Completed 11-01-PLAN.md — carry-forward fields + warmStartedDetector helper
 Resume file: None
 Next action: `/gsd:plan-phase 6`

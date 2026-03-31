@@ -73,7 +73,10 @@ Plans:
   1. Adding 1 node to a 34-node graph triggers ego-net recomputation for that node and its neighbors only — verified by instrumenting rebuild count in a test
   2. Personas for unaffected nodes carry over from the prior result unchanged — verified by asserting persona ID stability for untouched nodes in a table-driven test
   3. New personas are allocated from `maxExistingPersonaID + 1`, confirmed by asserting no overlap between original `NodeID` space and post-update persona IDs across all nodes in the result
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [x] 11-01-PLAN.md — Carry-forward fields on OverlappingCommunityResult + warmStartedDetector helper
+- [ ] 11-02-PLAN.md — Incremental Update() with computeAffected, buildPersonaGraphIncremental, warm-start global detection
 
 ### Phase 12: Parallel Ego-Net Construction and Performance
 **Goal**: Introduce a goroutine pool for ego-net construction so that both the incremental path and the full `Detect()` path meet their performance targets on large graphs.

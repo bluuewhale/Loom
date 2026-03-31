@@ -16,6 +16,13 @@ type OverlappingCommunityDetector interface {
 type OverlappingCommunityResult struct {
 	Communities     [][]NodeID       // community-first: each element is a list of member NodeIDs
 	NodeCommunities map[NodeID][]int // node-first: nodeID -> list of community indices (O(1) lookup)
+
+	// Unexported carry-forward fields populated by Detect() for use by Update().
+	// These hold the intermediate state needed for incremental recomputation.
+	personaOf        map[NodeID]map[int]NodeID // original node -> community -> PersonaID
+	inverseMap       map[NodeID]NodeID         // PersonaID -> original NodeID
+	partitions       map[NodeID]map[NodeID]int // ego-net partition per original node
+	personaPartition map[NodeID]int            // persona-level global partition
 }
 
 // EgoSplittingOptions configures the Ego Splitting algorithm.
@@ -98,7 +105,7 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 	}
 
 	// Step 1: Build persona graph (Algorithms 1 + 2).
-	personaGraph, _, inverseMap, err := buildPersonaGraph(g, d.opts.LocalDetector)
+	personaGraph, personaOf, inverseMap, partitions, err := buildPersonaGraph(g, d.opts.LocalDetector)
 	if err != nil {
 		return OverlappingCommunityResult{}, err
 	}
@@ -167,6 +174,11 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 	return OverlappingCommunityResult{
 		Communities:     filtered,
 		NodeCommunities: nodeCommunities,
+		// Carry-forward fields for incremental Update() in Phase 11-02.
+		personaOf:        personaOf,
+		inverseMap:       inverseMap,
+		partitions:       partitions,
+		personaPartition: globalResult.Partition,
 	}, nil
 }
 
@@ -191,6 +203,32 @@ func (d *egoSplittingDetector) Update(
 	return d.Detect(g)
 }
 
+// warmStartedDetector constructs a new CommunityDetector with the same
+// configuration as d but with InitialPartition set to partition.
+// Does NOT mutate d. Falls back to d unchanged if type is unrecognized.
+func warmStartedDetector(d CommunityDetector, partition map[NodeID]int) CommunityDetector {
+	switch det := d.(type) {
+	case *louvainDetector:
+		return NewLouvain(LouvainOptions{
+			Resolution:       det.opts.Resolution,
+			Seed:             det.opts.Seed,
+			MaxPasses:        det.opts.MaxPasses,
+			Tolerance:        det.opts.Tolerance,
+			InitialPartition: partition,
+		})
+	case *leidenDetector:
+		return NewLeiden(LeidenOptions{
+			Resolution:       det.opts.Resolution,
+			Seed:             det.opts.Seed,
+			MaxIterations:    det.opts.MaxIterations,
+			Tolerance:        det.opts.Tolerance,
+			InitialPartition: partition,
+		})
+	default:
+		return d
+	}
+}
+
 // buildEgoNet returns the ego-net of node v: the subgraph induced by v's
 // neighbors, excluding v itself. This implements Algorithm 1 of the Ego
 // Splitting framework.
@@ -212,7 +250,8 @@ func buildEgoNet(g *Graph, v NodeID) *Graph {
 //   - personaGraph: new undirected graph with persona nodes and rewired edges
 //   - personaOf: map[NodeID]map[int]NodeID -- original node -> community -> PersonaID
 //   - inverseMap: map[NodeID]NodeID -- PersonaID -> original NodeID
-func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[NodeID]map[int]NodeID, map[NodeID]NodeID, error) {
+//   - partitions: map[NodeID]map[NodeID]int -- ego-net partition per original node
+func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[NodeID]map[int]NodeID, map[NodeID]NodeID, map[NodeID]map[NodeID]int, error) {
 	// Step 1: find maxNodeID to set next persona ID above existing IDs
 	var maxNodeID NodeID
 	for _, id := range g.Nodes() {
@@ -243,7 +282,7 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 
 		result, err := localDetector.Detect(egoNet)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		// Store partition for cross-lookup during edge wiring
@@ -321,7 +360,7 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 		}
 	}
 
-	return personaGraph, personaOf, inverseMap, nil
+	return personaGraph, personaOf, inverseMap, partitions, nil
 }
 
 // mapPersonasToOriginal converts global community assignments on the persona
