@@ -57,6 +57,24 @@ func TestLeidenNumRunsThreeExplicit(t *testing.T) {
 	t.Logf("Seed=0 NumRuns=3: Q=%.4f communities=%d", res.Modularity, uniqueCommunities(res.Partition))
 }
 
+// TestLeidenNumRunsTwoExplicit verifies that Seed=0, NumRuns=2 returns a valid
+// CommunityResult with Q > 0 for the Karate Club graph.
+func TestLeidenNumRunsTwoExplicit(t *testing.T) {
+	g := buildKarateClubLeiden()
+	det := NewLeiden(LeidenOptions{Seed: 0, NumRuns: 2})
+	res, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Modularity <= 0 {
+		t.Errorf("expected Q > 0, got %.4f", res.Modularity)
+	}
+	if len(res.Partition) != 34 {
+		t.Errorf("expected 34 nodes in Partition, got %d", len(res.Partition))
+	}
+	t.Logf("Seed=0 NumRuns=2: Q=%.4f communities=%d", res.Modularity, uniqueCommunities(res.Partition))
+}
+
 // TestLeidenNumRunsOneIsEquivalent verifies that Seed=0, NumRuns=1 returns a valid
 // CommunityResult (single run, non-deterministic path).
 func TestLeidenNumRunsOneIsEquivalent(t *testing.T) {
