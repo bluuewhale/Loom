@@ -30,8 +30,8 @@
 ### Correctness and Safety
 
 - [x] **ONLINE-11**: PersonaID allocation in `Update()` never collides with original `NodeID` space — new personas assigned from `maxExistingPersonaID + 1`, preserving the disjoint PersonaID invariant
-- [ ] **ONLINE-12**: `Update()` result satisfies all existing result invariants: every original node (including newly added ones) appears in at least one community; `NodeCommunities` and `Communities` are mutually consistent
-- [ ] **ONLINE-13**: `Update()` is concurrent-safe — `go test -race` passes on concurrent `Update()` calls on distinct detector instances
+- [x] **ONLINE-12**: `Update()` result satisfies all existing result invariants: every original node (including newly added ones) appears in at least one community; `NodeCommunities` and `Communities` are mutually consistent
+- [x] **ONLINE-13**: `Update()` is concurrent-safe — `go test -race` passes on concurrent `Update()` calls on distinct detector instances
 
 ---
 

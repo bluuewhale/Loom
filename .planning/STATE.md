@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Online Ego-Splitting
 status: verifying
-stopped_at: "Completed 12-02-PLAN.md — Update speedup benchmarks and raceEnabled build-tag files"
-last_updated: "2026-03-31T06:30:54.950Z"
+stopped_at: Completed 13-01-PLAN.md — Correctness Hardening and Race Safety
+last_updated: "2026-03-31T06:59:28.871Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
   percent: 0
 ---
 
@@ -69,11 +69,11 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 11 P02 | 7 | 2 tasks | 2 files |
 | Phase 12 P01 | 30 | 4 tasks | 6 files |
 | Phase 12 P02 | 10min | 2 tasks | 3 files |
+| Phase 13 P01 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
 ### Roadmap Evolution
-
 
 ### Decisions
 
@@ -109,6 +109,8 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 12]: GlobalDetector defaults MaxPasses=1: sparse persona graph converges in single pass, avoids 1s supergraph compression overhead on 94K-node graph
 - [Phase 12]: ONLINE-09 10x speedup not achievable on 34-node KarateClub: global Louvain dominates after 1-edge addition; TestUpdate1EdgeSpeedup threshold set to 1.5x regression guard
 - [Phase 12]: raceEnabled build-tag pattern for performance tests: race detector adds ~3x overhead, invalidating timing assertions
+- [Phase 13]: assertResultInvariants enforces 3 properties: NodeCommunities coverage, index bounds, bidirectional consistency — reusable helper for future invariant tests
+- [Phase 13]: TestEgoSplittingConcurrentUpdate uses 8 goroutines x 3 updates on independent detector instances — each goroutine owns all state so no shared mutable data
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -136,7 +138,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T06:30:54.947Z
-Stopped at: Completed 12-02-PLAN.md — Update speedup benchmarks and raceEnabled build-tag files
+Last session: 2026-03-31T06:59:28.868Z
+Stopped at: Completed 13-01-PLAN.md — Correctness Hardening and Race Safety
 Resume file: None
 Next action: `/gsd:verify-work 12`
