@@ -2,48 +2,45 @@ goos: darwin
 goarch: arm64
 pkg: github.com/bluuewhale/loom/graph
 cpu: Apple M4
-BenchmarkLouvain1K-10    	    1093	   5437302 ns/op	 2330819 B/op	    5217 allocs/op
-BenchmarkLouvain1K-10    	    1022	   5486713 ns/op	 2331562 B/op	    5217 allocs/op
-BenchmarkLouvain1K-10    	    1092	   5555996 ns/op	 2331219 B/op	    5217 allocs/op
-BenchmarkLouvain1K-10    	    1117	   5427081 ns/op	 2330518 B/op	    5217 allocs/op
-BenchmarkLouvain1K-10    	    1105	   5421838 ns/op	 2332638 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10                  	     236	   5411910 ns/op	 2331343 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10                  	     232	   5627118 ns/op	 2332829 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10                  	     224	   5260519 ns/op	 2330511 B/op	    5217 allocs/op
+BenchmarkLouvain1K-10                  	     230	   5175882 ns/op	 2334301 B/op	    5218 allocs/op
+BenchmarkLouvain1K-10                  	     237	   5400180 ns/op	 2331796 B/op	    5217 allocs/op
+BenchmarkLeiden1K-10                   	     217	   5379965 ns/op	 2581441 B/op	    7248 allocs/op
+BenchmarkLeiden1K-10                   	     210	   5408780 ns/op	 2581463 B/op	    7248 allocs/op
+BenchmarkLeiden1K-10                   	     224	   5988476 ns/op	 2581934 B/op	    7249 allocs/op
+BenchmarkLeiden1K-10                   	     210	   5809868 ns/op	 2581948 B/op	    7249 allocs/op
+BenchmarkLeiden1K-10                   	     204	   5407453 ns/op	 2581425 B/op	    7248 allocs/op
+BenchmarkLouvain10K-10                 	      18	  60503208 ns/op	18865272 B/op	   48808 allocs/op
+BenchmarkLouvain10K-10                 	      19	  59096610 ns/op	18623215 B/op	   48773 allocs/op
+BenchmarkLouvain10K-10                 	      19	  62857289 ns/op	18852278 B/op	   48806 allocs/op
+BenchmarkLouvain10K-10                 	      19	  68404765 ns/op	18622985 B/op	   48773 allocs/op
+BenchmarkLouvain10K-10                 	      14	  91861994 ns/op	18726940 B/op	   48788 allocs/op
+BenchmarkLeiden10K-10                  	      16	  65049648 ns/op	20975753 B/op	   66512 allocs/op
+BenchmarkLeiden10K-10                  	      18	  62506090 ns/op	21136259 B/op	   66536 allocs/op
+BenchmarkLeiden10K-10                  	      14	  88764342 ns/op	21182436 B/op	   66543 allocs/op
+BenchmarkLeiden10K-10                  	      15	  83535400 ns/op	21169282 B/op	   66541 allocs/op
+BenchmarkLeiden10K-10                  	      18	  64918926 ns/op	21055248 B/op	   66524 allocs/op
+BenchmarkLouvain10K_Allocs-10          	      18	  60028757 ns/op	18622986 B/op	   48773 allocs/op
+BenchmarkLouvain10K_Allocs-10          	      21	  66184387 ns/op	18623067 B/op	   48773 allocs/op
+BenchmarkLouvain10K_Allocs-10          	      21	  57129042 ns/op	18761291 B/op	   48793 allocs/op
+BenchmarkLouvain10K_Allocs-10          	      20	  62892506 ns/op	18768196 B/op	   48794 allocs/op
+BenchmarkLouvain10K_Allocs-10          	      20	  59145190 ns/op	18695590 B/op	   48783 allocs/op
+BenchmarkLouvainWarmStart-10           	      28	  46368350 ns/op	10346003 B/op	   25755 allocs/op
+BenchmarkLouvainWarmStart-10           	      28	  41637604 ns/op	10349901 B/op	   25755 allocs/op
+BenchmarkLouvainWarmStart-10           	      26	  43013022 ns/op	10336302 B/op	   25754 allocs/op
+BenchmarkLouvainWarmStart-10           	      21	  55495688 ns/op	10336708 B/op	   25754 allocs/op
+BenchmarkLouvainWarmStart-10           	      28	  43277598 ns/op	10335391 B/op	   25754 allocs/op
+BenchmarkLeidenWarmStart-10            	      24	  49697724 ns/op	13164881 B/op	   37121 allocs/op
+BenchmarkLeidenWarmStart-10            	      25	  49402492 ns/op	13191312 B/op	   37128 allocs/op
+BenchmarkLeidenWarmStart-10            	      24	  54716318 ns/op	13222355 B/op	   37133 allocs/op
+BenchmarkLeidenWarmStart-10            	      21	  52972480 ns/op	13291217 B/op	   37141 allocs/op
+BenchmarkLeidenWarmStart-10            	      25	  48053265 ns/op	13264476 B/op	   37139 allocs/op
+BenchmarkComputeModularityKarate-10    	  630283	      1876 ns/op	     320 B/op	       3 allocs/op
+BenchmarkComputeModularityKarate-10    	  536356	      2115 ns/op	     320 B/op	       3 allocs/op
+BenchmarkComputeModularityKarate-10    	  627669	      2463 ns/op	     320 B/op	       3 allocs/op
+BenchmarkComputeModularityKarate-10    	  307638	      4137 ns/op	     320 B/op	       3 allocs/op
+BenchmarkComputeModularityKarate-10    	  274876	      4206 ns/op	     320 B/op	       3 allocs/op
 PASS
-ok  	github.com/bluuewhale/loom/graph	32.699s
-goos: darwin
-goarch: arm64
-pkg: github.com/bluuewhale/loom/graph
-cpu: Apple M4
-BenchmarkLeiden1K-10    	    1018	   5758121 ns/op	 2581981 B/op	    7249 allocs/op
-BenchmarkLeiden1K-10    	    1036	   5766014 ns/op	 2581712 B/op	    7249 allocs/op
-BenchmarkLeiden1K-10    	     985	   5729336 ns/op	 2581698 B/op	    7248 allocs/op
-BenchmarkLeiden1K-10    	    1034	   5851941 ns/op	 2582050 B/op	    7249 allocs/op
-BenchmarkLeiden1K-10    	    1087	   5734492 ns/op	 2582151 B/op	    7249 allocs/op
-PASS
-ok  	github.com/bluuewhale/loom/graph	33.320s
-goos: darwin
-goarch: arm64
-pkg: community-detection/graph
-cpu: Apple M4
-BenchmarkLouvain10K-10           	      24	  50046896 ns/op	18622992 B/op	   48773 allocs/op
-BenchmarkLouvain10K-10           	      24	  50336365 ns/op	18622977 B/op	   48773 allocs/op
-BenchmarkLouvain10K-10           	      22	  50184839 ns/op	18688989 B/op	   48782 allocs/op
-BenchmarkLouvain10K-10           	      24	  51080899 ns/op	18622982 B/op	   48773 allocs/op
-BenchmarkLouvain10K-10           	      22	  50568483 ns/op	18622983 B/op	   48773 allocs/op
-BenchmarkLouvain10K_Allocs-10    	      22	  51277587 ns/op	18622988 B/op	   48773 allocs/op
-BenchmarkLouvain10K_Allocs-10    	      22	  51406591 ns/op	18622988 B/op	   48773 allocs/op
-BenchmarkLouvain10K_Allocs-10    	      22	  51409324 ns/op	18622993 B/op	   48773 allocs/op
-BenchmarkLouvain10K_Allocs-10    	      22	  52513072 ns/op	18622983 B/op	   48773 allocs/op
-BenchmarkLouvain10K_Allocs-10    	      22	  51172778 ns/op	18622978 B/op	   48773 allocs/op
-PASS
-ok  	community-detection/graph	13.300s
-goos: darwin
-goarch: arm64
-pkg: community-detection/graph
-cpu: Apple M4
-BenchmarkLeiden10K-10    	      21	  56207927 ns/op	21186944 B/op	   66552 allocs/op
-BenchmarkLeiden10K-10    	      21	  56004712 ns/op	21251146 B/op	   66561 allocs/op
-BenchmarkLeiden10K-10    	      21	  56127145 ns/op	21187099 B/op	   66552 allocs/op
-BenchmarkLeiden10K-10    	      20	  55820412 ns/op	21258482 B/op	   66562 allocs/op
-BenchmarkLeiden10K-10    	      20	  56579102 ns/op	21191493 B/op	   66552 allocs/op
-PASS
-ok  	community-detection/graph	6.852s
+ok  	github.com/bluuewhale/loom/graph	94.393s
