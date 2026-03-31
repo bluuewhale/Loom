@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: verifying
 stopped_at: "Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests"
-last_updated: "2026-03-30T08:38:00.738Z"
-last_activity: 2026-03-30
+last_updated: "2026-03-31T00:00:00.000Z"
+last_activity: 2026-03-31
 progress:
   total_phases: 4
   completed_phases: 4
@@ -109,6 +109,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260330-jq7 | warm-start 테스트 누락 사항 추가 | 2026-03-30 | 3390928 | [260330-jq7-warm-start](.planning/quick/260330-jq7-warm-start/) |
+| 260331-ivp | gonum Louvain benchmark + README performance table + python-louvain footnote | 2026-03-31 | 844a7ac | [260331-ivp-readme-python-louvain-scripts-go-compare](.planning/quick/260331-ivp-readme-python-louvain-scripts-go-compare/) |
 
 ### Blockers/Concerns
 
