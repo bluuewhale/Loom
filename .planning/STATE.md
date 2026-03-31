@@ -3,14 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Online Ego-Splitting
 status: verifying
+<<<<<<< HEAD
 stopped_at: Completed 12-01-PLAN.md — parallel ego-net construction + 300ms target + speedup benchmarks
 last_updated: "2026-03-31T06:30:54.950Z"
+=======
+stopped_at: "Completed 12-02-PLAN.md — Update speedup benchmarks and raceEnabled build-tag files"
+last_updated: "2026-03-31T00:00:00Z"
+>>>>>>> worktree-agent-a13e4c1f
 last_activity: 2026-03-31
 progress:
   total_phases: 4
   completed_phases: 3
+<<<<<<< HEAD
   total_plans: 4
   completed_plans: 4
+=======
+  total_plans: 5
+  completed_plans: 5
+>>>>>>> worktree-agent-a13e4c1f
   percent: 0
 ---
 
@@ -21,12 +31,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 09 — edge-cases-and-hardening
+**Current focus:** Phase 12 — parallel-ego-net-construction-and-performance
 
 ## Current Position
 
+<<<<<<< HEAD
 Phase: 11
 Plan: Not started
+=======
+Phase: 12
+Plan: 02 complete
+>>>>>>> worktree-agent-a13e4c1f
 Status: Phase complete — ready for verification
 Last activity: 2026-03-31
 
@@ -64,10 +79,14 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
 | Phase 08-full-detect-pipeline-accuracy-performance P02 | 5 min | 2 tasks | 2 files |
 | Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
+<<<<<<< HEAD
 | Phase 10-online-api-contract P01 | 1min | 1 tasks | 2 files |
 | Phase 11-incremental-recomputation-core P01 | 5min | 2 tasks | 2 files |
 | Phase 11 P02 | 7 | 2 tasks | 2 files |
 | Phase 12 P01 | 30 | 4 tasks | 6 files |
+=======
+| Phase 12 P02 | 10min | 2 tasks | 3 files |
+>>>>>>> worktree-agent-a13e4c1f
 
 ## Accumulated Context
 
@@ -94,6 +113,7 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
 - [Phase 09-edge-cases-and-hardening]: ErrEmptyGraph guard placed after IsDirected check — mirrors ErrDirectedNotSupported pattern
 - [Phase 09-edge-cases-and-hardening]: Star topology test asserts persona count <= degree(center) — Louvain assigns each disconnected leaf singleton community, so center gets 5 personas (bounded, not panic)
+<<<<<<< HEAD
 - [Phase 10-online-api-contract]: Update() empty-delta returns prior by value with 0 allocs (no deep-copy)
 - [Phase 10-online-api-contract]: NewOnlineEgoSplitting reuses *egoSplittingDetector — no new struct needed
 - [Phase 10-online-api-contract]: Non-empty delta falls back to Detect() in Phase 10; Phase 11 replaces with incremental recomputation
@@ -105,6 +125,10 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 12]: GlobalDetector defaults MaxPasses=1: sparse persona graph converges in single pass, avoids 1s supergraph compression overhead on 94K-node graph
 - [Phase 12]: ONLINE-09 10x speedup not achievable on 34-node KarateClub: global Louvain dominates after 1-edge addition; TestUpdate1EdgeSpeedup threshold set to 1.5x regression guard
 - [Phase 12]: raceEnabled build-tag pattern for performance tests: race detector adds ~3x overhead, invalidating timing assertions
+=======
+- [Phase 12]: raceEnabled build-tag pattern guards performance tests: race detector adds ~3x overhead invalidating timing assertions
+- [Phase 12]: TestUpdate1EdgeSpeedup threshold 1.5x regression guard: global Louvain dominates after 1-edge addition on 34-node graph; 10x (ONLINE-09) not achievable at this scale
+>>>>>>> worktree-agent-a13e4c1f
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -132,7 +156,12 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
+<<<<<<< HEAD
 Last session: 2026-03-31T06:30:54.947Z
 Stopped at: Completed 12-01-PLAN.md — parallel ego-net construction + 300ms target + speedup benchmarks
+=======
+Last session: 2026-03-31T00:00:00Z
+Stopped at: Completed 12-02-PLAN.md — Update speedup benchmarks and raceEnabled build-tag files
+>>>>>>> worktree-agent-a13e4c1f
 Resume file: None
-Next action: `/gsd:plan-phase 6`
+Next action: `/gsd:verify-work 12`
