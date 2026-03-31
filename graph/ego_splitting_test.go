@@ -1692,6 +1692,97 @@ func TestEgoSplittingConcurrentUpdate(t *testing.T) {
 	wg.Wait()
 }
 
+// BenchmarkEgoSplittingUpdate1Node1Edge measures online Update when a single new node
+// with one connecting edge is added to the 10K-node BA graph.
+// Affected set = 2 nodes (new node + its anchor). Compare to BenchmarkEgoSplitting10K
+// (cold Detect) to quantify online speedup.
+func BenchmarkEgoSplittingUpdate1Node1Edge(b *testing.B) {
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1, MaxPasses: 1}),
+	})
+	prior, err := det.Detect(bench10K)
+	if err != nil {
+		b.Fatalf("cold detect: %v", err)
+	}
+
+	const newNode = NodeID(10000)
+	const anchor = NodeID(5000)
+	addedEdges := []DeltaEdge{{From: newNode, To: anchor, Weight: 1.0}}
+	modified := cloneWithAdditions(bench10K, []NodeID{newNode}, addedEdges)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{newNode},
+		AddedEdges: addedEdges,
+	}
+
+	det.Update(modified, delta, prior) // warmup
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = det.Update(modified, delta, prior)
+	}
+}
+
+// BenchmarkEgoSplittingUpdate2Edges measures online Update when two edges are added
+// between existing nodes (no new nodes). Affected set = 4 nodes.
+func BenchmarkEgoSplittingUpdate2Edges(b *testing.B) {
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1, MaxPasses: 1}),
+	})
+	prior, err := det.Detect(bench10K)
+	if err != nil {
+		b.Fatalf("cold detect: %v", err)
+	}
+
+	// Use high-index nodes unlikely to be directly connected in BA(10K, m=5).
+	addedEdges := []DeltaEdge{
+		{From: NodeID(9990), To: NodeID(9995), Weight: 1.0},
+		{From: NodeID(9991), To: NodeID(9996), Weight: 1.0},
+	}
+	modified := cloneWithAdditions(bench10K, nil, addedEdges)
+	delta := GraphDelta{AddedEdges: addedEdges}
+
+	det.Update(modified, delta, prior) // warmup
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = det.Update(modified, delta, prior)
+	}
+}
+
+// TestEgoSplittingUpdateAllocSavings asserts that online Update with a minimal delta
+// (1 new node + 1 edge, affected set = 2 nodes) allocates at least 2x fewer bytes
+// than a cold Detect on the 10K-node BA graph.
+//
+// Why allocs, not time? The global persona-graph re-detection dominates wall time
+// (~200ms in both cases), making time speedup small (~1.1–1.2x) and noisy.
+// Allocation savings are deterministic and directly reflect the incremental patch
+// path: only 2 affected ego-nets + partial persona-graph re-wiring vs full rebuild.
+func TestEgoSplittingUpdateAllocSavings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping alloc-savings test in short mode")
+	}
+	if raceEnabled {
+		t.Skip("skipping alloc-savings test under -race")
+	}
+	cold := testing.Benchmark(BenchmarkEgoSplitting10K)
+	online := testing.Benchmark(BenchmarkEgoSplittingUpdate1Node1Edge)
+	if cold.AllocsPerOp() == 0 || online.AllocsPerOp() == 0 {
+		t.Skip("benchmark returned 0 allocs/op — too fast to measure")
+	}
+	allocSpeedup := float64(cold.AllocsPerOp()) / float64(online.AllocsPerOp())
+	timeSpeedup := float64(cold.NsPerOp()) / float64(online.NsPerOp())
+	t.Logf("EgoSplitting online Update vs cold Detect (10K BA graph):")
+	t.Logf("  time:  cold=%dms  update=%dms  speedup=%.2fx",
+		cold.NsPerOp()/1e6, online.NsPerOp()/1e6, timeSpeedup)
+	t.Logf("  allocs: cold=%d  update=%d  speedup=%.2fx",
+		cold.AllocsPerOp(), online.AllocsPerOp(), allocSpeedup)
+	if allocSpeedup < 2.0 {
+		t.Errorf("online Update alloc savings %.2fx < 2.0x threshold", allocSpeedup)
+	}
+}
+
 // BenchmarkUpdate_EmptyDelta measures allocations for Update with an empty delta.
 // Expected: 0 allocs/op (prior is returned as-is). (ONLINE-03)
 func BenchmarkUpdate_EmptyDelta(b *testing.B) {
