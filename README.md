@@ -144,10 +144,10 @@ Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs. Python: pytho
 
 | Graph size | Algorithm | Go (loom) | Python (python-louvain) | Speedup |
 |------------|-----------|-----------|-------------------------|---------|
-| 1K nodes   | Louvain   | ~5.4ms    | ~65ms                   | ~12x    |
-| 1K nodes   | Leiden    | ~5.8ms    | N/A¹                    | —       |
-| 10K nodes  | Louvain   | ~50ms     | ~3,700ms                | ~75x    |
-| 10K nodes  | Leiden    | ~56ms     | N/A¹                    | —       |
+| 1K nodes   | Louvain   | ~5.4ms    | ~91ms                   | ~17x    |
+| 1K nodes   | Leiden    | ~5.4ms    | N/A¹                    | —       |
+| 10K nodes  | Louvain   | ~63ms     | ~2,889ms                | ~46x    |
+| 10K nodes  | Leiden    | ~65ms     | N/A¹                    | —       |
 
 ¹ python-louvain implements Louvain only. Install: `pip install networkx python-louvain`
 
