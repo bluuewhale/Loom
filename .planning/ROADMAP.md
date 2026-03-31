@@ -45,7 +45,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 ## v1.3 Online Ego-Splitting
 
 - [x] **Phase 10: Online API Contract** — `GraphDelta` type, `Update()` signature, directed-graph guard, empty-delta fast-path (completed 2026-03-31)
-- [ ] **Phase 11: Incremental Recomputation Core** — affected-node set computation, incremental ego-net rebuild, incremental persona graph patch, warm-start global detection, PersonaID collision safety
+- [x] **Phase 11: Incremental Recomputation Core** — affected-node set computation, incremental ego-net rebuild, incremental persona graph patch, warm-start global detection, PersonaID collision safety (completed 2026-03-31)
 - [ ] **Phase 12: Parallel Ego-Net Construction and Performance** — goroutine pool for ego-net construction, ≥10x speedup benchmarks for 1-node and 1-edge updates, 10K-node benchmark ≤300ms/op
 - [ ] **Phase 13: Correctness Hardening and Race Safety** — result invariant tests, concurrent-safe verification under `-race`
 
@@ -76,7 +76,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 11-01-PLAN.md — Carry-forward fields on OverlappingCommunityResult + warmStartedDetector helper
-- [ ] 11-02-PLAN.md — Incremental Update() with computeAffected, buildPersonaGraphIncremental, warm-start global detection
+- [x] 11-02-PLAN.md — Incremental Update() with computeAffected, buildPersonaGraphIncremental, warm-start global detection
 
 ### Phase 12: Parallel Ego-Net Construction and Performance
 **Goal**: Introduce a goroutine pool for ego-net construction so that both the incremental path and the full `Detect()` path meet their performance targets on large graphs.

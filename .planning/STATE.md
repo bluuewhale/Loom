@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Online Ego-Splitting
 status: verifying
-stopped_at: Completed 11-01-PLAN.md — carry-forward fields + warmStartedDetector helper
-last_updated: "2026-03-31T05:30:24.551Z"
+stopped_at: "Completed 11-02-PLAN.md — incremental Update(): computeAffected + buildPersonaGraphIncremental + DeltaEdge"
+last_updated: "2026-03-31T05:41:27.902Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -66,6 +66,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
 | Phase 10-online-api-contract P01 | 1min | 1 tasks | 2 files |
 | Phase 11-incremental-recomputation-core P01 | 5min | 2 tasks | 2 files |
+| Phase 11 P02 | 7 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,9 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 10-online-api-contract]: Non-empty delta falls back to Detect() in Phase 10; Phase 11 replaces with incremental recomputation
 - [Phase 11-incremental-recomputation-core]: buildPersonaGraph returns partitions as 4th value — exposes ego-net partitions to Detect() carry-forward without a separate pass
 - [Phase 11-incremental-recomputation-core]: warmStartedDetector falls back to d for unknown types — safe extension point for future detector implementations
+- [Phase 11]: DeltaEdge introduced as separate type from Edge — Edge only has To+Weight (relative to source), DeltaEdge needs both endpoints to stand alone in a delta
+- [Phase 11]: buildPersonaGraphIncremental rebuilds full persona graph edges O(|E|) — only ego-net detection is O(affected), unavoidable without RemoveNode
+- [Phase 11]: PersonaID collision check in tests covers only NEW allocations — prior PersonaIDs carried from before a node was added are allowed to share numeric value
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -124,7 +128,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T05:30:24.548Z
-Stopped at: Completed 11-01-PLAN.md — carry-forward fields + warmStartedDetector helper
+Last session: 2026-03-31T05:41:27.899Z
+Stopped at: Completed 11-02-PLAN.md — incremental Update(): computeAffected + buildPersonaGraphIncremental + DeltaEdge
 Resume file: None
 Next action: `/gsd:plan-phase 6`
