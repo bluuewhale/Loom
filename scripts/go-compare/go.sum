@@ -1,2 +1,6 @@
+github.com/ledyba/go-louvain v0.0.0-20220113123819-4f03491a0437 h1:80cfnTvBX/jA5ZN5ghQJTLXTpPAPsi38EEJ4tBaxIB0=
+github.com/ledyba/go-louvain v0.0.0-20220113123819-4f03491a0437/go.mod h1:SWWuRhNrTKEPeOTMwxZ05pi+Qdqxt3dO5OaLh6tHPSs=
+github.com/vsuryav/leiden-go v0.0.0-20251120005855-0f56599dc139 h1:B7eZGMTUwygvqrkmXnjk9hc8qd6Auq5yc8x71JICamc=
+github.com/vsuryav/leiden-go v0.0.0-20251120005855-0f56599dc139/go.mod h1:adNE0+GTqJpi/ET5gKkG4dozKaLe4gIRlkfpVTms/Ag=
 gonum.org/v1/gonum v0.17.0 h1:VbpOemQlsSMrYmn7T2OUvQ4dqxQXU+ouZFQsZOx50z4=
 gonum.org/v1/gonum v0.17.0/go.mod h1:El3tOrEuMpv2UdMrbNlKEh9vd86bmQ6vqIcDwxEOc1E=
