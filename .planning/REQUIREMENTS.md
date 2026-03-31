@@ -10,10 +10,10 @@
 
 ### Online API Contract
 
-- [ ] **ONLINE-01**: Caller can construct a `GraphDelta` value describing node/edge additions: `AddedNodes []NodeID` and `AddedEdges []Edge`
-- [ ] **ONLINE-02**: Caller can invoke `Update(g *Graph, delta GraphDelta, prior OverlappingCommunityResult) (OverlappingCommunityResult, error)` on an `EgoSplittingDetector` to obtain an updated overlapping community result without full recomputation
-- [ ] **ONLINE-03**: Caller receives prior result unchanged (no recomputation) when `Update()` is called with an empty delta (`len(AddedNodes)==0 && len(AddedEdges)==0`)
-- [ ] **ONLINE-04**: Caller receives `ErrDirectedNotSupported` when `Update()` is called on a directed graph, matching the existing `Detect()` guard contract
+- [x] **ONLINE-01**: Caller can construct a `GraphDelta` value describing node/edge additions: `AddedNodes []NodeID` and `AddedEdges []Edge`
+- [x] **ONLINE-02**: Caller can invoke `Update(g *Graph, delta GraphDelta, prior OverlappingCommunityResult) (OverlappingCommunityResult, error)` on an `EgoSplittingDetector` to obtain an updated overlapping community result without full recomputation
+- [x] **ONLINE-03**: Caller receives prior result unchanged (no recomputation) when `Update()` is called with an empty delta (`len(AddedNodes)==0 && len(AddedEdges)==0`)
+- [x] **ONLINE-04**: Caller receives `ErrDirectedNotSupported` when `Update()` is called on a directed graph, matching the existing `Detect()` guard contract
 
 ### Incremental Recomputation
 

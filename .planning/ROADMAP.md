@@ -44,7 +44,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 ## v1.3 Online Ego-Splitting
 
-- [ ] **Phase 10: Online API Contract** — `GraphDelta` type, `Update()` signature, directed-graph guard, empty-delta fast-path
+- [x] **Phase 10: Online API Contract** — `GraphDelta` type, `Update()` signature, directed-graph guard, empty-delta fast-path (completed 2026-03-31)
 - [ ] **Phase 11: Incremental Recomputation Core** — affected-node set computation, incremental ego-net rebuild, incremental persona graph patch, warm-start global detection, PersonaID collision safety
 - [ ] **Phase 12: Parallel Ego-Net Construction and Performance** — goroutine pool for ego-net construction, ≥10x speedup benchmarks for 1-node and 1-edge updates, 10K-node benchmark ≤300ms/op
 - [ ] **Phase 13: Correctness Hardening and Race Safety** — result invariant tests, concurrent-safe verification under `-race`
@@ -62,7 +62,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. `Update()` called on a directed graph returns `ErrDirectedNotSupported` and no result, matching the behavior of `Detect()` on directed graphs
 **Plans**: 1 plan
 Plans:
-- [ ] 10-01-PLAN.md — GraphDelta type, OnlineOverlappingCommunityDetector interface, Update() with guards and empty-delta fast-path
+- [x] 10-01-PLAN.md — GraphDelta type, OnlineOverlappingCommunityDetector interface, Update() with guards and empty-delta fast-path
 
 ### Phase 11: Incremental Recomputation Core
 **Goal**: Replace the full-graph recompute path inside `Update()` with incremental logic — affected-node scoping, ego-net selective rebuild, persona graph patching, and warm-started global detection — while preserving PersonaID disjointness.
