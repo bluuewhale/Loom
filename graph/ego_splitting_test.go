@@ -932,6 +932,234 @@ func TestWarmStartedDetector_DoesNotMutateOriginal(t *testing.T) {
 	}
 }
 
+// --- computeAffected tests: ONLINE-05 / Phase 11-02 ---
+
+// TestComputeAffected_SingleNodeAdd: adding a node with no edges produces an
+// affected set containing only that node.
+func TestComputeAffected_SingleNodeAdd(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // nodes 0-33
+	g.AddNode(34, 1.0)                        // new isolated node, no edges
+	delta := GraphDelta{AddedNodes: []NodeID{34}}
+
+	affected := computeAffected(g, delta)
+
+	if _, ok := affected[34]; !ok {
+		t.Error("new node 34 must be in affected set")
+	}
+	if len(affected) != 1 {
+		t.Errorf("affected set size = %d, want 1 (node 34 has no edges)", len(affected))
+	}
+}
+
+// TestComputeAffected_SingleEdgeAdd: adding edge (0,1) to Karate Club produces
+// an affected set containing 0, 1, and all their neighbors in the updated graph.
+func TestComputeAffected_SingleEdgeAdd(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	// Edge (0,1) already exists in Karate Club but AddEdge is idempotent for our test purposes.
+	// Use a known edge that exercises the neighbor expansion.
+	delta := GraphDelta{AddedEdges: []DeltaEdge{{From: 0, To: 1, Weight: 1.0}}}
+
+	affected := computeAffected(g, delta)
+
+	// Endpoints must be present.
+	if _, ok := affected[0]; !ok {
+		t.Error("endpoint 0 must be in affected set")
+	}
+	if _, ok := affected[1]; !ok {
+		t.Error("endpoint 1 must be in affected set")
+	}
+
+	// All neighbors of 0 in g must be present.
+	for _, nb := range g.Neighbors(0) {
+		if _, ok := affected[nb.To]; !ok {
+			t.Errorf("neighbor %d of node 0 must be in affected set", nb.To)
+		}
+	}
+	// All neighbors of 1 in g must be present.
+	for _, nb := range g.Neighbors(1) {
+		if _, ok := affected[nb.To]; !ok {
+			t.Errorf("neighbor %d of node 1 must be in affected set", nb.To)
+		}
+	}
+}
+
+// TestComputeAffected_NodeAndEdge: adding node 34 + edge (0,34) produces an
+// affected set containing 34, 0, and all neighbors of 0 and 34.
+func TestComputeAffected_NodeAndEdge(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	affected := computeAffected(g, delta)
+
+	// 34 and 0 must be present.
+	if _, ok := affected[34]; !ok {
+		t.Error("new node 34 must be in affected set")
+	}
+	if _, ok := affected[0]; !ok {
+		t.Error("endpoint 0 must be in affected set")
+	}
+
+	// All neighbors of 0 must be present.
+	for _, nb := range g.Neighbors(0) {
+		if _, ok := affected[nb.To]; !ok {
+			t.Errorf("neighbor %d of node 0 must be in affected set", nb.To)
+		}
+	}
+}
+
+// TestComputeAffected_EmptyDelta: empty delta returns empty affected set.
+func TestComputeAffected_EmptyDelta(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	delta := GraphDelta{}
+
+	affected := computeAffected(g, delta)
+
+	if len(affected) != 0 {
+		t.Errorf("empty delta produced affected set of size %d, want 0", len(affected))
+	}
+}
+
+// --- buildPersonaGraphIncremental tests: ONLINE-06, ONLINE-11 / Phase 11-02 ---
+
+// TestBuildPersonaGraphIncremental_CarriesOverUnaffected: nodes far from the
+// new node retain identical PersonaIDs between prior and incremental result.
+func TestBuildPersonaGraphIncremental_CarriesOverUnaffected(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // nodes 0-33
+
+	// Get a prior result via Detect.
+	det := NewEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	prior, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	// Add node 34 with a single edge to node 0 only.
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	affected := computeAffected(g, delta)
+
+	_, newPersonaOf, _, _, _, err := buildPersonaGraphIncremental(
+		g, affected, prior, NewLouvain(LouvainOptions{Seed: 42}),
+	)
+	if err != nil {
+		t.Fatalf("buildPersonaGraphIncremental error: %v", err)
+	}
+
+	// Nodes NOT in affected must have identical personaOf entries.
+	for v, priorPersonas := range prior.personaOf {
+		if _, isAffected := affected[v]; isAffected {
+			continue
+		}
+		newPersonas, ok := newPersonaOf[v]
+		if !ok {
+			t.Errorf("unaffected node %d missing from newPersonaOf", v)
+			continue
+		}
+		if len(newPersonas) != len(priorPersonas) {
+			t.Errorf("unaffected node %d: len(personas) changed from %d to %d", v, len(priorPersonas), len(newPersonas))
+			continue
+		}
+		for commID, personaID := range priorPersonas {
+			if newPersonas[commID] != personaID {
+				t.Errorf("unaffected node %d community %d: PersonaID changed from %d to %d", v, commID, personaID, newPersonas[commID])
+			}
+		}
+	}
+}
+
+// TestBuildPersonaGraphIncremental_PersonaIDAboveMax: all new PersonaIDs assigned
+// to affected nodes are >= max(prior PersonaIDs) + 1 AND >= max(g.Nodes()) + 1.
+func TestBuildPersonaGraphIncremental_PersonaIDAboveMax(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges) // nodes 0-33
+
+	det := NewEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	prior, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	// Compute max prior PersonaID.
+	var maxPriorPersonaID NodeID
+	for pID := range prior.inverseMap {
+		if pID > maxPriorPersonaID {
+			maxPriorPersonaID = pID
+		}
+	}
+
+	// Add node 34 with edge to node 0.
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+
+	affected := computeAffected(g, delta)
+
+	// Collect all new PersonaIDs assigned to affected nodes.
+	_, newPersonaOf, newInverseMap, _, _, err := buildPersonaGraphIncremental(
+		g, affected, prior, NewLouvain(LouvainOptions{Seed: 42}),
+	)
+	if err != nil {
+		t.Fatalf("buildPersonaGraphIncremental error: %v", err)
+	}
+
+	// Compute max NodeID in updated g.
+	var maxNodeID NodeID
+	for _, id := range g.Nodes() {
+		if id > maxNodeID {
+			maxNodeID = id
+		}
+	}
+
+	// All PersonaIDs for affected nodes must be > maxPriorPersonaID AND > maxNodeID.
+	threshold := maxPriorPersonaID
+	if maxNodeID > threshold {
+		threshold = maxNodeID
+	}
+
+	for v := range affected {
+		personas, ok := newPersonaOf[v]
+		if !ok {
+			t.Errorf("affected node %d missing from newPersonaOf", v)
+			continue
+		}
+		for _, personaID := range personas {
+			if personaID <= threshold {
+				t.Errorf("affected node %d PersonaID %d <= threshold %d (max prior=%d, max nodeID=%d)",
+					v, personaID, threshold, maxPriorPersonaID, maxNodeID)
+			}
+		}
+	}
+
+	// Sanity: every PersonaID in newInverseMap maps to a valid node in g.
+	nodeSet := make(map[NodeID]struct{})
+	for _, id := range g.Nodes() {
+		nodeSet[id] = struct{}{}
+	}
+	for pID, origNode := range newInverseMap {
+		if _, ok := nodeSet[origNode]; !ok {
+			t.Errorf("inverseMap[%d] = %d, but %d is not in updated graph", pID, origNode, origNode)
+		}
+	}
+}
+
 // BenchmarkUpdate_EmptyDelta measures allocations for Update with an empty delta.
 // Expected: 0 allocs/op (prior is returned as-is). (ONLINE-03)
 func BenchmarkUpdate_EmptyDelta(b *testing.B) {

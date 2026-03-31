@@ -40,11 +40,20 @@ type EgoSplittingOptions struct {
 	Resolution     float64
 }
 
+// DeltaEdge represents a directed or undirected edge addition in a GraphDelta.
+// Unlike Edge (which is always relative to a source node), DeltaEdge carries
+// both endpoints so it can stand alone in a delta description.
+type DeltaEdge struct {
+	From   NodeID
+	To     NodeID
+	Weight float64
+}
+
 // GraphDelta describes incremental additions to a graph for use with Update().
 // Only additions are supported in v1.3; deletions are deferred to v1.4.
 type GraphDelta struct {
 	AddedNodes []NodeID
-	AddedEdges []Edge
+	AddedEdges []DeltaEdge
 }
 
 // OnlineOverlappingCommunityDetector extends OverlappingCommunityDetector with
@@ -361,6 +370,173 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 	}
 
 	return personaGraph, personaOf, inverseMap, partitions, nil
+}
+
+// computeAffected returns the set of nodes whose ego-nets must be recomputed
+// for the given delta. Affected = new nodes + neighbors of all edge endpoints
+// (queried on the already-updated graph g).
+func computeAffected(g *Graph, delta GraphDelta) map[NodeID]struct{} {
+	affected := make(map[NodeID]struct{})
+	for _, n := range delta.AddedNodes {
+		affected[n] = struct{}{}
+	}
+	for _, e := range delta.AddedEdges {
+		affected[e.From] = struct{}{}
+		affected[e.To] = struct{}{}
+		for _, nb := range g.Neighbors(e.From) {
+			affected[nb.To] = struct{}{}
+		}
+		for _, nb := range g.Neighbors(e.To) {
+			affected[nb.To] = struct{}{}
+		}
+	}
+	return affected
+}
+
+// buildPersonaGraphIncremental constructs an updated persona graph using the
+// prior result and recomputing only the affected nodes' ego-nets (ONLINE-06).
+// New PersonaIDs are allocated above max(prior inverseMap keys, g.Nodes()) to
+// prevent collisions (ONLINE-11).
+//
+// Returns: personaGraph, personaOf, inverseMap, partitions, warmPartition, error.
+func buildPersonaGraphIncremental(
+	g *Graph,
+	affected map[NodeID]struct{},
+	prior OverlappingCommunityResult,
+	localDetector CommunityDetector,
+) (*Graph, map[NodeID]map[int]NodeID, map[NodeID]NodeID, map[NodeID]map[NodeID]int, map[NodeID]int, error) {
+	// Step a: deep-copy prior maps (shallow copy of inner maps for unaffected nodes).
+	personaOf := make(map[NodeID]map[int]NodeID, len(prior.personaOf))
+	for v, comms := range prior.personaOf {
+		personaOf[v] = comms // unaffected entries share the inner map (read-only)
+	}
+	inverseMap := make(map[NodeID]NodeID, len(prior.inverseMap))
+	for pID, orig := range prior.inverseMap {
+		inverseMap[pID] = orig
+	}
+	partitions := make(map[NodeID]map[NodeID]int, len(prior.partitions))
+	for v, part := range prior.partitions {
+		partitions[v] = part // unaffected entries share the inner map (read-only)
+	}
+
+	// Step b: compute nextPersona = max(all prior inverseMap keys, all g.Nodes()) + 1.
+	// ONLINE-11: must consider both to prevent collisions after multiple Updates.
+	var maxID NodeID
+	for pID := range prior.inverseMap {
+		if pID > maxID {
+			maxID = pID
+		}
+	}
+	for _, id := range g.Nodes() {
+		if id > maxID {
+			maxID = id
+		}
+	}
+	nextPersona := maxID + 1
+
+	// Step c: delete old persona entries for affected nodes.
+	for v := range affected {
+		if comms, ok := personaOf[v]; ok {
+			for _, personaID := range comms {
+				delete(inverseMap, personaID)
+			}
+		}
+		delete(personaOf, v)
+		delete(partitions, v)
+	}
+
+	// Step d: rebuild ego-nets for affected nodes and assign new PersonaIDs.
+	for v := range affected {
+		personaOf[v] = make(map[int]NodeID)
+
+		egoNet := buildEgoNet(g, v)
+		if egoNet.NodeCount() == 0 {
+			// Isolated node or no neighbors: single persona with community 0.
+			personaOf[v][0] = nextPersona
+			inverseMap[nextPersona] = v
+			nextPersona++
+			partitions[v] = make(map[NodeID]int)
+			continue
+		}
+
+		result, err := localDetector.Detect(egoNet)
+		if err != nil {
+			return nil, nil, nil, nil, nil, err
+		}
+
+		partitions[v] = result.Partition
+
+		commsSeen := make(map[int]struct{})
+		for _, commID := range result.Partition {
+			commsSeen[commID] = struct{}{}
+		}
+		for commID := range commsSeen {
+			personaOf[v][commID] = nextPersona
+			inverseMap[nextPersona] = v
+			nextPersona++
+		}
+	}
+
+	// Step e: build warmPartition from prior.personaPartition, keeping only
+	// PersonaIDs that still exist in the new inverseMap (deleted affected
+	// personas are excluded; new personas are absent = cold-start singleton).
+	warmPartition := make(map[NodeID]int, len(prior.personaPartition))
+	for pID, commID := range prior.personaPartition {
+		if _, stillExists := inverseMap[pID]; stillExists {
+			warmPartition[pID] = commID
+		}
+	}
+
+	// Step f: rebuild persona graph from scratch (Graph has no RemoveNode).
+	personaGraph := NewGraph(false)
+	for personaID := range inverseMap {
+		personaGraph.AddNode(personaID, 1.0)
+	}
+
+	// Wire edges using canonical (lo, hi) dedup pattern — same as buildPersonaGraph.
+	seen := make(map[[2]NodeID]struct{})
+	for _, u := range g.Nodes() {
+		for _, e := range g.Neighbors(u) {
+			v := e.To
+
+			lo, hi := u, v
+			if lo > hi {
+				lo, hi = hi, lo
+			}
+			key := [2]NodeID{lo, hi}
+			if _, already := seen[key]; already {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			commOfVinGu := 0
+			if partU, hasU := partitions[u]; hasU {
+				if cv, vInU := partU[v]; vInU {
+					commOfVinGu = cv
+				}
+			}
+
+			commOfUinGv := 0
+			if partV, hasV := partitions[v]; hasV {
+				if cu, uInV := partV[u]; uInV {
+					commOfUinGv = cu
+				}
+			}
+
+			personaU, uHasComm := personaOf[u][commOfVinGu]
+			if !uHasComm {
+				continue
+			}
+			personaV, vHasComm := personaOf[v][commOfUinGv]
+			if !vHasComm {
+				continue
+			}
+
+			personaGraph.AddEdge(personaU, personaV, e.Weight)
+		}
+	}
+
+	return personaGraph, personaOf, inverseMap, partitions, warmPartition, nil
 }
 
 // mapPersonasToOriginal converts global community assignments on the persona
