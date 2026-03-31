@@ -820,6 +820,118 @@ func TestDetect_CarryForwardNilFallback(t *testing.T) {
 	}
 }
 
+// --- warmStartedDetector tests: ONLINE-07 / Phase 11-01 ---
+
+// TestWarmStartedDetector_Louvain verifies that warmStartedDetector on a
+// *louvainDetector returns a new *louvainDetector with InitialPartition set
+// and all other options preserved.
+func TestWarmStartedDetector_Louvain(t *testing.T) {
+	base := NewLouvain(LouvainOptions{
+		Seed:       42,
+		Resolution: 1.5,
+		MaxPasses:  10,
+		Tolerance:  1e-6,
+	})
+	partition := map[NodeID]int{0: 1, 1: 2, 2: 1}
+
+	result := warmStartedDetector(base, partition)
+
+	got, ok := result.(*louvainDetector)
+	if !ok {
+		t.Fatalf("warmStartedDetector did not return *louvainDetector, got %T", result)
+	}
+	if got.opts.Seed != 42 {
+		t.Errorf("Seed = %d, want 42", got.opts.Seed)
+	}
+	if got.opts.Resolution != 1.5 {
+		t.Errorf("Resolution = %v, want 1.5", got.opts.Resolution)
+	}
+	if got.opts.MaxPasses != 10 {
+		t.Errorf("MaxPasses = %d, want 10", got.opts.MaxPasses)
+	}
+	if got.opts.Tolerance != 1e-6 {
+		t.Errorf("Tolerance = %v, want 1e-6", got.opts.Tolerance)
+	}
+	if len(got.opts.InitialPartition) != len(partition) {
+		t.Errorf("InitialPartition len = %d, want %d", len(got.opts.InitialPartition), len(partition))
+	}
+	for k, v := range partition {
+		if got.opts.InitialPartition[k] != v {
+			t.Errorf("InitialPartition[%d] = %d, want %d", k, got.opts.InitialPartition[k], v)
+		}
+	}
+}
+
+// TestWarmStartedDetector_Leiden verifies that warmStartedDetector on a
+// *leidenDetector returns a new *leidenDetector with InitialPartition set
+// and all other options preserved.
+func TestWarmStartedDetector_Leiden(t *testing.T) {
+	base := NewLeiden(LeidenOptions{
+		Seed:          7,
+		Resolution:    2.0,
+		MaxIterations: 20,
+		Tolerance:     1e-5,
+	})
+	partition := map[NodeID]int{0: 0, 1: 0, 2: 1}
+
+	result := warmStartedDetector(base, partition)
+
+	got, ok := result.(*leidenDetector)
+	if !ok {
+		t.Fatalf("warmStartedDetector did not return *leidenDetector, got %T", result)
+	}
+	if got.opts.Seed != 7 {
+		t.Errorf("Seed = %d, want 7", got.opts.Seed)
+	}
+	if got.opts.Resolution != 2.0 {
+		t.Errorf("Resolution = %v, want 2.0", got.opts.Resolution)
+	}
+	if got.opts.MaxIterations != 20 {
+		t.Errorf("MaxIterations = %d, want 20", got.opts.MaxIterations)
+	}
+	if got.opts.Tolerance != 1e-5 {
+		t.Errorf("Tolerance = %v, want 1e-5", got.opts.Tolerance)
+	}
+	if len(got.opts.InitialPartition) != len(partition) {
+		t.Errorf("InitialPartition len = %d, want %d", len(got.opts.InitialPartition), len(partition))
+	}
+}
+
+// TestWarmStartedDetector_NilPartition verifies that warmStartedDetector with
+// a nil partition produces a detector with nil InitialPartition (cold start).
+func TestWarmStartedDetector_NilPartition(t *testing.T) {
+	base := NewLouvain(LouvainOptions{Seed: 1})
+	result := warmStartedDetector(base, nil)
+
+	got, ok := result.(*louvainDetector)
+	if !ok {
+		t.Fatalf("warmStartedDetector did not return *louvainDetector, got %T", result)
+	}
+	if got.opts.InitialPartition != nil {
+		t.Errorf("expected InitialPartition nil for nil partition, got %v", got.opts.InitialPartition)
+	}
+}
+
+// TestWarmStartedDetector_DoesNotMutateOriginal verifies that calling
+// warmStartedDetector does not modify the input detector's options.
+func TestWarmStartedDetector_DoesNotMutateOriginal(t *testing.T) {
+	base := NewLouvain(LouvainOptions{Seed: 99})
+	original, ok := base.(*louvainDetector)
+	if !ok {
+		t.Fatal("base is not *louvainDetector")
+	}
+	if original.opts.InitialPartition != nil {
+		t.Fatal("precondition: original InitialPartition should be nil")
+	}
+
+	partition := map[NodeID]int{0: 1}
+	warmStartedDetector(base, partition)
+
+	if original.opts.InitialPartition != nil {
+		t.Error("warmStartedDetector mutated the original detector's InitialPartition")
+	}
+}
+
 // BenchmarkUpdate_EmptyDelta measures allocations for Update with an empty delta.
 // Expected: 0 allocs/op (prior is returned as-is). (ONLINE-03)
 func BenchmarkUpdate_EmptyDelta(b *testing.B) {

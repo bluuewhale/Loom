@@ -203,6 +203,32 @@ func (d *egoSplittingDetector) Update(
 	return d.Detect(g)
 }
 
+// warmStartedDetector constructs a new CommunityDetector with the same
+// configuration as d but with InitialPartition set to partition.
+// Does NOT mutate d. Falls back to d unchanged if type is unrecognized.
+func warmStartedDetector(d CommunityDetector, partition map[NodeID]int) CommunityDetector {
+	switch det := d.(type) {
+	case *louvainDetector:
+		return NewLouvain(LouvainOptions{
+			Resolution:       det.opts.Resolution,
+			Seed:             det.opts.Seed,
+			MaxPasses:        det.opts.MaxPasses,
+			Tolerance:        det.opts.Tolerance,
+			InitialPartition: partition,
+		})
+	case *leidenDetector:
+		return NewLeiden(LeidenOptions{
+			Resolution:       det.opts.Resolution,
+			Seed:             det.opts.Seed,
+			MaxIterations:    det.opts.MaxIterations,
+			Tolerance:        det.opts.Tolerance,
+			InitialPartition: partition,
+		})
+	default:
+		return d
+	}
+}
+
 // buildEgoNet returns the ego-net of node v: the subgraph induced by v's
 // neighbors, excluding v itself. This implements Algorithm 1 of the Ego
 // Splitting framework.
