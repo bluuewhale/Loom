@@ -4,8 +4,19 @@
 
 - ✅ **v1.0 Community Detection** — Phases 01-04 (shipped 2026-03-29)
 - ✅ **v1.1 Online Community Detection** — Phase 05 (shipped 2026-03-30)
+- 🔄 **v1.2 Overlapping Community Detection** — Phases 06-09 (active)
 
 ## Phases
+
+<details>
+<summary>🔄 v1.2 Overlapping Community Detection (Phases 06-09) — ACTIVE</summary>
+
+- [x] **Phase 06: Types and Interfaces** - Define `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, and `NewEgoSplitting` stub (completed 2026-03-30)
+- [x] **Phase 07: Persona Graph Infrastructure** - Implement `personaMap`, `buildPersonaGraph`, `mapPersonasToOriginal`, and Algorithm 1 ego-net construction (completed 2026-03-30)
+- [x] **Phase 08: Full Detect Pipeline + Accuracy + Performance** - Wire Algorithms 1-3 into `Detect`, integrate Omega index, validate fixtures, benchmark 10K
+- [x] **Phase 09: Edge Cases and Hardening** - Guards for empty graph, isolated nodes, single-community ego-nets, and degenerate inputs
+
+</details>
 
 <details>
 <summary>✅ v1.1 Online Community Detection (Phase 05) — SHIPPED 2026-03-30</summary>
@@ -28,6 +39,65 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
+## Phase Details
+
+### Phase 06: Types and Interfaces
+**Goal**: Callers can reference the `OverlappingCommunityDetector` interface and its result/options types; the package compiles and all existing tests continue to pass
+**Depends on**: Phase 05 (complete)
+**Requirements**: EGO-01, EGO-02, EGO-03, EGO-07
+**Success Criteria** (what must be TRUE):
+  1. `OverlappingCommunityDetector` interface with `Detect(*Graph) (OverlappingCommunityResult, error)` is declared and distinct from `CommunityDetector` — no existing file is modified
+  2. `OverlappingCommunityResult` exposes `Communities [][]NodeID` and `NodeCommunities map[NodeID][]int` on the same result value
+  3. `EgoSplittingOptions` accepts `LocalDetector CommunityDetector`, `GlobalDetector CommunityDetector`, and `Resolution float64`; nil detectors default to Louvain
+  4. `NewEgoSplitting(opts EgoSplittingOptions)` returns a value that satisfies `OverlappingCommunityDetector`; calling `Detect` returns a defined unimplemented sentinel error
+  5. `go build ./...` and `go test ./...` pass with zero failures (stub, no logic yet)
+**Plans**: 1 plan
+- [x] 06-01-PLAN.md — Types, stub constructor, and tests (completed 2026-03-30)
+**UI hint**: no
+
+### Phase 07: Persona Graph Infrastructure
+**Goal**: Algorithm 1 (ego-net construction) and Algorithm 2 (persona graph generation) are implemented and validated in isolation on hand-crafted small graphs before being wired into the full pipeline
+**Depends on**: Phase 06
+**Requirements**: EGO-04, EGO-05, EGO-06
+**Success Criteria** (what must be TRUE):
+  1. For every node v, the ego-net subgraph passed to `LocalDetector.Detect` contains no node equal to v (ego node excluded per paper definition)
+  2. Every PersonaID in the persona graph is strictly outside `[0, g.NodeCount())` — no collision with original NodeIDs
+  3. `personaGraph.TotalWeight()` equals `g.TotalWeight()` after `buildPersonaGraph` — no edge double-counting
+  4. `mapPersonasToOriginal` returns a bijective inverse map: every persona ID maps to exactly one original NodeID, with no unmapped personas
+  5. Running `GlobalDetector.Detect` on the persona graph and applying `mapPersonasToOriginal` produces an `OverlappingCommunityResult` where at least one original node holds memberships from more than one persona (verified on Karate Club)
+**Plans**: 2 plans
+- [x] 07-01-PLAN.md — buildEgoNet, buildPersonaGraph, mapPersonasToOriginal + isolation tests (completed 2026-03-30)
+- [x] 07-02-PLAN.md — Karate Club integration test (completed 2026-03-30)
+**UI hint**: no
+
+### Phase 08: Full Detect Pipeline + Accuracy + Performance
+**Goal**: `EgoSplittingDetector.Detect` is end-to-end correct, concurrent-safe, achieves Omega index >= 0.5 on all three fixture graphs, and completes within 300ms on a 10,000-node graph
+**Depends on**: Phase 07
+**Requirements**: EGO-08, EGO-09, EGO-10, EGO-11
+**Success Criteria** (what must be TRUE):
+  1. `OmegaIndex(result, groundTruth)` is callable and returns a float64 in [0, 1] — standard NMI is not used as the accuracy gate
+  2. `EgoSplittingDetector.Detect` achieves Omega index >= 0.5 on Karate Club (34n), Football (115n), and Polbooks (105n) ground-truth fixtures
+  3. `go test -race ./...` passes with zero race reports on the full Detect pipeline
+  4. `BenchmarkEgoSplitting10K` completes in <= 300ms/op on a 10,000-node synthetic graph
+**Plans**: 2 plans
+Plans:
+- [x] 08-01-PLAN.md — OmegaIndex implementation + Detect() pipeline wiring
+- [x] 08-02-PLAN.md — Accuracy tests on 3 fixtures + race test + 10K benchmark
+**UI hint**: no
+
+### Phase 09: Edge Cases and Hardening
+**Goal**: `EgoSplittingDetector.Detect` handles all degenerate inputs without panicking and returns defined results or errors in every documented edge case
+**Depends on**: Phase 08
+**Requirements**: EGO-12, EGO-13, EGO-14
+**Success Criteria** (what must be TRUE):
+  1. Degree-0 (isolated) nodes are assigned to their own singleton community — `Detect` does not panic and every isolated node appears in exactly one community
+  2. A node whose ego-net yields a single local community produces exactly one persona equal to the original node (no splitting) — persona count does not grow unboundedly on star topologies
+  3. `Detect` called on an empty graph (`NodeCount == 0`) returns a non-nil sentinel error and a zero-value result
+**Plans**: 1 plan
+Plans:
+- [x] 09-01-PLAN.md — ErrEmptyGraph sentinel, empty-graph guard, and edge-case tests (EGO-12, EGO-13, EGO-14)
+**UI hint**: no
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -37,33 +107,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 03: Leiden Implementation | v1.0 | 1/1 | Complete | 2026-03-29 |
 | 04: Performance Hardening | v1.0 | 2/2 | Complete | 2026-03-29 |
 | 05: Warm Start | v1.1 | 2/2 | Complete | 2026-03-30 |
-
-### Phase 1: Leiden NMI 안정성 — seed 의존성 문제 해결 및 알고리즘 수렴 보장 강화
-
-**Goal:** LeidenOptions에 NumRuns 멀티런 전략을 추가하여 Seed=0 모드에서 NMI 품질 안정성 확보
-**Requirements**: LEIDEN-NMI-01, LEIDEN-NMI-02, LEIDEN-NMI-03
-**Depends on:** Phase 0
-**Plans:** 1 plan
-
-Plans:
-- [x] 01-01-PLAN.md — NumRuns multi-run 구현 + 테스트 업데이트 및 stability 테스트 추가
-
-### Phase 2: 문서화 — GoDoc 예시 확충 및 GraphRAG 실전 예제 추가
-
-**Goal:** GoDoc Example 함수 3개 추가, README에 GraphRAG 실전 예제 섹션 및 Accuracy NMI 값 기입, NumRuns API 문서화
-**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05
-**Depends on:** Phase 1
-**Plans:** 1 plan
-
-Plans:
-- [x] 02-01-PLAN.md — GoDoc examples + README updates (GraphRAG example, NMI values, NumRuns, API corrections)
-
-### Phase 3: 벤치마크 비교 — Python networkx 대비 성능 비교표 작성 (채택 논거)
-
-**Goal:** Go 1K 벤치마크 추가, Python python-louvain 비교 스크립트 작성, README Performance 섹션에 Go vs Python 비교표 추가 (~15x at 1K, ~75x at 10K 속도 우위 표시)
-**Requirements**: BENCH-01, BENCH-02, BENCH-03
-**Depends on:** Phase 2
-**Plans:** 1 plan
-
-Plans:
-- [x] 03-01-PLAN.md — Go 1K benchmarks + scripts/compare.py + README comparison table
+| 06: Types and Interfaces | v1.2 | 1/1 | Complete | 2026-03-30 |
+| 07: Persona Graph Infrastructure | v1.2 | 2/2 | Complete | 2026-03-30 |
+| 08: Full Detect Pipeline + Accuracy + Performance | v1.2 | 0/2 | Planning | - |
+| 09: Edge Cases and Hardening | v1.2 | TBD | Not started | - |
