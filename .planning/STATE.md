@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
+milestone: v1.3
+milestone_name: Online Ego-Splitting
 status: verifying
-stopped_at: "Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests"
-last_updated: "2026-03-30T08:38:00.738Z"
-last_activity: 2026-03-30
+stopped_at: "Completed 12-02-PLAN.md — Update speedup benchmarks and raceEnabled build-tag files"
+last_updated: "2026-03-31T00:00:00Z"
+last_activity: 2026-03-31
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 09 — edge-cases-and-hardening
+**Current focus:** Phase 12 — parallel-ego-net-construction-and-performance
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
+Phase: 12
+Plan: 02 complete
 Status: Phase complete — ready for verification
-Last activity: 2026-03-30
+Last activity: 2026-03-31
 
 Progress: [____________] 0% (0/4 phases complete)
 
@@ -64,6 +64,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
 | Phase 08-full-detect-pipeline-accuracy-performance P02 | 5 min | 2 tasks | 2 files |
 | Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
+| Phase 12 P02 | 10min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
 - [Phase 09-edge-cases-and-hardening]: ErrEmptyGraph guard placed after IsDirected check — mirrors ErrDirectedNotSupported pattern
 - [Phase 09-edge-cases-and-hardening]: Star topology test asserts persona count <= degree(center) — Louvain assigns each disconnected leaf singleton community, so center gets 5 personas (bounded, not panic)
+- [Phase 12]: raceEnabled build-tag pattern guards performance tests: race detector adds ~3x overhead invalidating timing assertions
+- [Phase 12]: TestUpdate1EdgeSpeedup threshold 1.5x regression guard: global Louvain dominates after 1-edge addition on 34-node graph; 10x (ONLINE-09) not achievable at this scale
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -118,7 +121,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T04:51:34Z
-Stopped at: Completed quick task 260331-j5u — go-compare go-louvain leiden-go README
+Last session: 2026-03-31T00:00:00Z
+Stopped at: Completed 12-02-PLAN.md — Update speedup benchmarks and raceEnabled build-tag files
 Resume file: None
-Next action: `/gsd:plan-phase 6`
+Next action: `/gsd:verify-work 12`
