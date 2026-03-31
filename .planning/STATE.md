@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: "Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests"
-last_updated: "2026-03-30T08:38:00.738Z"
+stopped_at: "Completed 10-01-PLAN.md — Online API Contract: GraphDelta, OnlineOverlappingCommunityDetector, Update()"
+last_updated: "2026-03-31T05:06:14.284Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 4
@@ -64,6 +64,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
 | Phase 08-full-detect-pipeline-accuracy-performance P02 | 5 min | 2 tasks | 2 files |
 | Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
+| Phase 10-online-api-contract P01 | 1min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,9 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
 - [Phase 09-edge-cases-and-hardening]: ErrEmptyGraph guard placed after IsDirected check — mirrors ErrDirectedNotSupported pattern
 - [Phase 09-edge-cases-and-hardening]: Star topology test asserts persona count <= degree(center) — Louvain assigns each disconnected leaf singleton community, so center gets 5 personas (bounded, not panic)
+- [Phase 10-online-api-contract]: Update() empty-delta returns prior by value with 0 allocs (no deep-copy)
+- [Phase 10-online-api-contract]: NewOnlineEgoSplitting reuses *egoSplittingDetector — no new struct needed
+- [Phase 10-online-api-contract]: Non-empty delta falls back to Detect() in Phase 10; Phase 11 replaces with incremental recomputation
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -117,7 +121,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-30T08:35:21.478Z
-Stopped at: Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests
+Last session: 2026-03-31T05:06:14.281Z
+Stopped at: Completed 10-01-PLAN.md — Online API Contract: GraphDelta, OnlineOverlappingCommunityDetector, Update()
 Resume file: None
 Next action: `/gsd:plan-phase 6`
