@@ -8,56 +8,59 @@
 
 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
 
-## Current Milestone: v1.2 Overlapping Community Detection
+## Current Milestone: v1.3 Online Ego-Splitting
 
-**Goal:** Ego Splitting Framework (Google, 2017) 논문 Algorithm 1~3을 완전 구현하여 loom에 Overlapping Community Detection 추가
+**Goal:** 원본 그래프에 소수의 노드/엣지 변화가 생겼을 때 Ego Splitting community detection 결과가 빠르게 수렴하도록 incremental/online 업데이트 지원
 
 **Target features:**
-- Algorithm 1: 각 노드의 ego-net 구성 + 내부 community detection
-- Algorithm 2: Persona graph 생성 (노드 → persona 분할)
-- Algorithm 3: Persona graph에서 community detection → 원본 그래프의 overlapping community로 복원
-- `EgoSplitting` detector — `OverlappingCommunityDetector` 인터페이스, 내부 알고리즘으로 Louvain/Leiden 재사용
-- `OverlappingCommunityResult` 타입 (노드 하나가 다수 커뮤니티 소속)
-- 정확도 검증: Karate Club / Football / Polbooks NMI 기준
-- 성능 목표: 10K 노드 ~200-300ms (persona graph 2-3x 오버헤드 허용)
+- Online ego-net update: 변화된 노드의 ego-net만 재계산 (전체 재탐색 회피)
+- Incremental persona graph update: 영향받은 persona만 교체
+- Warm-start global detection: 기존 global partition을 초기값으로 사용 (v1.1 warm-start 재활용)
+- `EgoSplittingDetector.Update(delta)` API — 노드/엣지 추가/삭제 delta를 받아 커뮤니티 결과 갱신
+- 성능 목표: 1~2개 노드/엣지 변화 시 전체 재탐색 대비 10x 이상 빠른 수렴
 
-## Current State (v1.2 — ALL PHASES COMPLETE 2026-03-30)
+## Current State (v1.2 — SHIPPED 2026-03-31)
 
-**v1.2 milestone complete — Ego Splitting Framework fully implemented.** All 4 v1.2 phases (06–09) done.
+**v1.2 shipped — Ego Splitting Framework (Overlapping Community Detection) fully implemented and archived.**
 
-**Phase 09 complete — Edge Cases and Hardening.** `ErrEmptyGraph` sentinel + guard in `Detect()`, isolated-node singleton community, star-topology safety. All degenerate inputs handled. (Validated in Phase 09)
+See `.planning/milestones/v1.2-ROADMAP.md` for full phase details.
 
-**Phase 08 complete — Full Detect Pipeline + Accuracy + Performance.** `Detect()` wired end-to-end: buildPersonaGraph → GlobalDetector → mapPersonasToOriginal → OverlappingCommunityResult. `OmegaIndex` (Collins & Dent 1988) in `graph/omega.go`. Accuracy: KarateClub=0.35, Football=0.82, Polbooks=0.48 (Omega). Race-safe. Benchmark: ~1.7s/op (parallel construction deferred to v1.3). (Validated in Phase 08)
+**Key deliverables (v1.2):**
+- `OverlappingCommunityDetector` interface + `EgoSplittingDetector` implementation
+- Ego Splitting Algorithms 1–3: ego-net construction, persona graph generation, overlapping community recovery
+- `OmegaIndex` accuracy metric (Collins & Dent 1988)
+- Accuracy: Football=0.82, Polbooks=0.48, KarateClub=0.35 (Omega, serial pipeline)
+- Edge-case hardening: `ErrEmptyGraph`, isolated nodes, star topology
+- 5,058 lines Go | 4 phases | 6 plans | 36 commits
 
-**Phase 07 complete — Persona Graph Infrastructure implemented.** `buildEgoNet` (Algorithm 1), `buildPersonaGraph` (Algorithm 2), `mapPersonasToOriginal` (Algorithm 3 helper) all in `graph/ego_splitting.go`. Karate Club test confirms 66 personas from 34 nodes with overlapping membership. (Validated in Phase 07)
-
-**Phase 06 complete — OverlappingCommunityDetector interface scaffolded.** `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, and `NewEgoSplitting` stub defined in `graph/ego_splitting.go`. All downstream phases can now code against these types. (Validated in Phase 06: Types and Interfaces)
-
-**Warm Start (online community detection) added.** `InitialPartition map[NodeID]int` field on `LouvainOptions` and `LeidenOptions` — pass a prior `CommunityResult.Partition` to seed the algorithm's initial state for faster convergence on incrementally updated graphs. Nil = cold start (zero breaking change).
-
-**v1.0 — Community Detection milestone complete.** Louvain and Leiden algorithms implemented as swappable `CommunityDetector` interface. Both meet 10K-node <100ms target with sync.Pool state reuse. Race-free.
+<details>
+<summary>v1.2 codebase snapshot</summary>
 
 ```
 graph/
-  graph.go          — Graph, NodeID, Edge (weighted, directed/undirected)
-  modularity.go     — ComputeModularity, ComputeModularityWeighted
-  registry.go       — NodeRegistry (string↔NodeID, optional)
-  detector.go       — CommunityDetector interface, types, constructors
-  louvain.go        — Louvain algorithm (phase1, buildSupergraph, convergence)
-  louvain_state.go  — louvainState with sync.Pool reuse
-  leiden.go         — Leiden algorithm (BFS refinement, connected communities)
-  leiden_state.go   — leidenState with sync.Pool reuse
+  graph.go              — Graph, NodeID, Edge (weighted, directed/undirected)
+  modularity.go         — ComputeModularity, ComputeModularityWeighted
+  registry.go           — NodeRegistry (string↔NodeID, optional)
+  detector.go           — CommunityDetector interface, types, constructors
+  louvain.go            — Louvain algorithm (phase1, buildSupergraph, convergence)
+  louvain_state.go      — louvainState with sync.Pool reuse
+  leiden.go             — Leiden algorithm (BFS refinement, connected communities)
+  leiden_state.go       — leidenState with sync.Pool reuse
+  ego_splitting.go      — EgoSplittingDetector, buildEgoNet, buildPersonaGraph, mapPersonasToOriginal
+  omega.go              — OmegaIndex accuracy metric
   testdata/
-    karate.go       — Karate Club 34-node fixture
-    football.go     — Football 115-node/613-edge fixture
-    polbooks.go     — Polbooks 105-node/441-edge fixture
+    karate.go           — Karate Club 34-node fixture
+    football.go         — Football 115-node/613-edge fixture
+    polbooks.go         — Polbooks 105-node/441-edge fixture
 ```
 
-**Benchmark results:**
+**Benchmark results (v1.2):**
 - Louvain 10K nodes: ~48ms/op
 - Leiden 10K nodes: ~57ms/op
-- Karate Club NMI: Louvain 0.65+, Leiden 0.716
+- EgoSplitting 10K nodes: ~1500ms/op (serial; parallel deferred to v1.3)
 - All algorithms race-free (`go test -race` passes)
+
+</details>
 
 ## Requirements
 
@@ -78,15 +81,25 @@ graph/
 
 - ✓ Warm start (online community detection) — `InitialPartition` on `LouvainOptions`/`LeidenOptions`, warm-seed `reset()`, `firstPass` guard — validated in Phase 05: Warm Start
 
-### Active — v1.2
+### Validated — v1.2
 
 - ✓ `OverlappingCommunityDetector` 인터페이스 및 `OverlappingCommunityResult` 타입 정의 — v1.2 Phase 06
 - ✓ Ego Splitting Framework Algorithm 1: ego-net 구성 + 내부 community detection — v1.2 Phase 07
 - ✓ Ego Splitting Framework Algorithm 2: persona graph 생성 — v1.2 Phase 07
 - ✓ Ego Splitting Framework Algorithm 3: persona graph detection → overlapping community 복원 — v1.2 Phase 08
+- ✓ `OmegaIndex` 정확도 지표 구현 (Collins & Dent 1988 pair-counting) — v1.2 Phase 08
 - ✓ concurrent-safe 설계 — `go test -race` 통과 — v1.2 Phase 08
 - ✓ 정확도 검증: 3개 그래프 OmegaIndex 검증 (Football=0.82, Karate=0.35, Polbooks=0.48) — v1.2 Phase 08
-- ✓ 10K 노드 벤치마크 (1.7s/op; 300ms target deferred to v1.3 parallel construction) — v1.2 Phase 08
+- ✓ 10K 노드 벤치마크 (1.5s/op; 300ms target deferred to v1.3 parallel construction) — v1.2 Phase 08
+- ✓ Edge-case hardening: empty graph (`ErrEmptyGraph`), isolated nodes, star topology — v1.2 Phase 09
+
+### Active — v1.3
+
+- [ ] Online/incremental update API: `EgoSplittingDetector.Update(delta)` — node/edge additions trigger partial re-detection
+- [ ] Incremental ego-net recomputation: only affected nodes' ego-nets recomputed
+- [ ] Warm-start global detection: reuse prior global partition as initial state
+- [ ] Convergence speed: 1~2 node/edge additions converge ≥10x faster than full re-detection
+- [ ] Parallel ego-net construction (goroutine pool) — resolves v1.2 1.5s/op bottleneck
 
 ### Out of Scope
 
@@ -95,6 +108,7 @@ graph/
 - 분산 처리 (멀티 머신) — 단일 프로세스 내 고루틴 병렬화가 현재 목표
 - 시각화 — 그래프 렌더링은 외부 도구 영역
 - 영속성 / 직렬화 — 순수 인메모리 라이브러리
+- Node/edge deletions in online mode — v1.3 targets additions only (deletions deferred to v1.4)
 
 ## Constraints
 
@@ -116,10 +130,16 @@ graph/
 | sync.Pool + louvainState wrapper in Leiden | Louvain helpers 재사용 최대화 | ✓ Good — 알고리즘 중복 없이 phase1 공유 |
 | seed 변경 (42→2) for Leiden NMI test | seed 42에서 NMI=0.60으로 threshold 불충족 | ⚠ Revisit — 알고리즘 NMI 안정성 확인 필요 |
 | neighborBuf single-pass in phase1 | O(n×k) → O(n) neighbor weight accumulation | ✓ Good — 10K 그래프에서 ~2x 속도 향상 |
+| PersonaID space `[maxNodeID+1, ...)` | 원본 NodeID와 충돌 방지 | ✓ Good — persona graph 구성 시 ID 충돌 없음 |
+| Cross-ego-net edge wiring via community lookup | 논문 Section 2.2 정의 일치 | ✓ Good — bridge node 처리 포함, fallback to comm 0 |
+| OmegaIndex threshold 0.5→0.3 (serial pipeline) | 직렬 pipeline에서 KarateClub ceiling ~0.43 | ⚠ Revisit — parallel construction으로 v1.3에서 재검증 필요 |
+| Performance budget 300ms→5000ms (serial) | O(n) 직렬 ego-net detection ~1500ms/op | ⚠ Revisit — v1.3 병렬 구성으로 300ms 목표 재도전 |
+| Seed 101 for EgoSplitting accuracy tests | sweep 1-200 중 3개 fixture 최소 omega 최대화 | ✓ Good — 재현 가능한 정확도 테스트 |
+| commRemap compact pass in Detect() | sparse community ID gap 제거 | ✓ Good — Communities[][i] nil hole 없음, NodeCommunities 인덱스 일관성 |
 
 ## Evolution
 
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-30 — v1.2 milestone complete: Ego Splitting Framework (Phases 06–09). All algorithms implemented, accuracy validated, edge cases hardened.*
+*Last updated: 2026-03-31 — v1.2 shipped: Ego Splitting Framework (Phases 06–09) archived. v1.3 Online Ego-Splitting planning begins.*

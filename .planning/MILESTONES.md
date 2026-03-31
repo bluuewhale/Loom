@@ -1,5 +1,20 @@
 # Milestones
 
+## v1.2 Overlapping Community Detection (Shipped: 2026-03-31)
+
+**Phases completed:** 4 phases, 6 plans, 2 tasks
+
+**Key accomplishments:**
+
+- OverlappingCommunityDetector interface and EgoSplitting stub declared in graph/ego_splitting.go with full nil-defaulting constructor and ErrNotImplemented sentinel
+- One-liner:
+- One-liner:
+- Task 1 — OmegaIndex (`graph/omega.go`)
+- Task 1 — Accuracy + Race Tests (`graph/ego_splitting_test.go`)
+- Task 1 — `graph/ego_splitting.go`:
+
+---
+
 ## v1.1 Online Community Detection (Shipped: 2026-03-30)
 
 **Phases completed:** 1 phase, 2 plans, 4 tasks
