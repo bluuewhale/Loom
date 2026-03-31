@@ -33,6 +33,20 @@ type EgoSplittingOptions struct {
 	Resolution     float64
 }
 
+// GraphDelta describes incremental additions to a graph for use with Update().
+// Only additions are supported in v1.3; deletions are deferred to v1.4.
+type GraphDelta struct {
+	AddedNodes []NodeID
+	AddedEdges []Edge
+}
+
+// OnlineOverlappingCommunityDetector extends OverlappingCommunityDetector with
+// incremental Update support for append-only graph mutations.
+type OnlineOverlappingCommunityDetector interface {
+	OverlappingCommunityDetector
+	Update(g *Graph, delta GraphDelta, prior OverlappingCommunityResult) (OverlappingCommunityResult, error)
+}
+
 // egoSplittingDetector implements OverlappingCommunityDetector using the
 // Ego Splitting framework (Epasto, Lattanzi, Paes Leme, 2017).
 type egoSplittingDetector struct {
@@ -42,6 +56,21 @@ type egoSplittingDetector struct {
 // NewEgoSplitting returns an OverlappingCommunityDetector that uses the
 // Ego Splitting framework. Nil detectors default to Louvain with default options.
 func NewEgoSplitting(opts EgoSplittingOptions) OverlappingCommunityDetector {
+	if opts.LocalDetector == nil {
+		opts.LocalDetector = NewLouvain(LouvainOptions{})
+	}
+	if opts.GlobalDetector == nil {
+		opts.GlobalDetector = NewLouvain(LouvainOptions{})
+	}
+	if opts.Resolution == 0 {
+		opts.Resolution = 1.0
+	}
+	return &egoSplittingDetector{opts: opts}
+}
+
+// NewOnlineEgoSplitting returns an OnlineOverlappingCommunityDetector backed by
+// the Ego Splitting algorithm. Nil detectors default to Louvain with default options.
+func NewOnlineEgoSplitting(opts EgoSplittingOptions) OnlineOverlappingCommunityDetector {
 	if opts.LocalDetector == nil {
 		opts.LocalDetector = NewLouvain(LouvainOptions{})
 	}
@@ -139,6 +168,27 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 		Communities:     filtered,
 		NodeCommunities: nodeCommunities,
 	}, nil
+}
+
+// Update returns an updated overlapping community result incorporating delta.
+// If delta is empty (no added nodes or edges), prior is returned unchanged with
+// zero additional allocations. Returns ErrDirectedNotSupported if g is directed.
+//
+// NOTE: In Phase 10 the non-empty-delta path falls back to a full Detect() call.
+// Phase 11 will replace this with incremental recomputation.
+func (d *egoSplittingDetector) Update(
+	g *Graph,
+	delta GraphDelta,
+	prior OverlappingCommunityResult,
+) (OverlappingCommunityResult, error) {
+	if g.IsDirected() {
+		return OverlappingCommunityResult{}, ErrDirectedNotSupported
+	}
+	if len(delta.AddedNodes) == 0 && len(delta.AddedEdges) == 0 {
+		return prior, nil
+	}
+	// TODO(Phase 11): replace with incremental recomputation.
+	return d.Detect(g)
 }
 
 // buildEgoNet returns the ego-net of node v: the subgraph induced by v's
