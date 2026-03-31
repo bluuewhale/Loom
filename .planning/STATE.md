@@ -3,24 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Online Ego-Splitting
 status: verifying
-<<<<<<< HEAD
 stopped_at: Completed 12-01-PLAN.md — parallel ego-net construction + 300ms target + speedup benchmarks
-last_updated: "2026-03-31T06:30:54.950Z"
-=======
-stopped_at: "Completed 12-02-PLAN.md — Update speedup benchmarks and raceEnabled build-tag files"
-last_updated: "2026-03-31T00:00:00Z"
->>>>>>> worktree-agent-a13e4c1f
+last_updated: "2026-03-31T06:45:10.679Z"
 last_activity: 2026-03-31
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 3
-<<<<<<< HEAD
-  total_plans: 4
-  completed_plans: 4
-=======
   total_plans: 5
   completed_plans: 5
->>>>>>> worktree-agent-a13e4c1f
   percent: 0
 ---
 
@@ -36,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 <<<<<<< HEAD
-Phase: 11
+Phase: 14
 Plan: Not started
 =======
 Phase: 12
@@ -113,7 +103,9 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
 - [Phase 09-edge-cases-and-hardening]: ErrEmptyGraph guard placed after IsDirected check — mirrors ErrDirectedNotSupported pattern
 - [Phase 09-edge-cases-and-hardening]: Star topology test asserts persona count <= degree(center) — Louvain assigns each disconnected leaf singleton community, so center gets 5 personas (bounded, not panic)
+
 <<<<<<< HEAD
+
 - [Phase 10-online-api-contract]: Update() empty-delta returns prior by value with 0 allocs (no deep-copy)
 - [Phase 10-online-api-contract]: NewOnlineEgoSplitting reuses *egoSplittingDetector — no new struct needed
 - [Phase 10-online-api-contract]: Non-empty delta falls back to Detect() in Phase 10; Phase 11 replaces with incremental recomputation
@@ -125,9 +117,12 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 12]: GlobalDetector defaults MaxPasses=1: sparse persona graph converges in single pass, avoids 1s supergraph compression overhead on 94K-node graph
 - [Phase 12]: ONLINE-09 10x speedup not achievable on 34-node KarateClub: global Louvain dominates after 1-edge addition; TestUpdate1EdgeSpeedup threshold set to 1.5x regression guard
 - [Phase 12]: raceEnabled build-tag pattern for performance tests: race detector adds ~3x overhead, invalidating timing assertions
+
 =======
+
 - [Phase 12]: raceEnabled build-tag pattern guards performance tests: race detector adds ~3x overhead invalidating timing assertions
 - [Phase 12]: TestUpdate1EdgeSpeedup threshold 1.5x regression guard: global Louvain dominates after 1-edge addition on 34-node graph; 10x (ONLINE-09) not achievable at this scale
+
 >>>>>>> worktree-agent-a13e4c1f
 
 ### v1.2 Critical Pitfalls (from research)
