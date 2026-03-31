@@ -142,21 +142,25 @@ func (r *NodeRegistry) Len() int
 
 Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs.
 
-| Graph size | Library | Language | Algorithm | Time | vs python-louvain |
-|------------|---------|----------|-----------|------|-------------------|
-| 1K nodes   | **loom** | Go | Louvain | ~5.4ms | ~17x faster |
-| 1K nodes   | **loom** | Go | Leiden  | ~5.4ms | — |
-| 1K nodes   | python-louvain¹ | Python | Louvain | ~91ms | baseline |
-| 10K nodes  | **loom** | Go | Louvain | ~63ms | ~46x faster |
-| 10K nodes  | **loom** | Go | Leiden  | ~65ms | — |
-| 10K nodes  | gonum/graph/community² | Go | Louvain | ~2.3s | — |
-| 10K nodes  | python-louvain¹ | Python | Louvain | ~2,889ms | baseline |
+| Graph size | Library | Algorithm | Time | Communities | Notes |
+|------------|---------|-----------|------|-------------|-------|
+| 1K nodes | **loom** | Louvain | ~5.4ms | — | multi-level supergraph compression |
+| 1K nodes | **loom** | Leiden | ~5.4ms | — | BFS-refined, connected communities |
+| 1K nodes | python-louvain¹ | Louvain | ~91ms | — | |
+| 10K nodes | **loom** | Louvain | ~63ms | ~22 | **~46x vs Python, ~37x vs gonum** |
+| 10K nodes | **loom** | Leiden | ~65ms | ~22 | |
+| 10K nodes | gonum² | Louvain | ~2.3s | ~22 | `community.Modularize`, general-purpose |
+| 10K nodes | go-louvain³ | Louvain (1 pass) | ~10ms | ~4,300 | single phase — not quality-comparable |
+| 10K nodes | leiden-go⁴ | Leiden | N/A | N/A | infinite loop bug on large graphs |
+| 10K nodes | python-louvain¹ | Louvain | ~2,889ms | — | |
 
-loom is **~46x faster than python-louvain** and **~37x faster than gonum** on 10K-node graphs. gonum's `community.Modularize` is a correct, general-purpose implementation; loom trades generality for a tight inner loop and `sync.Pool` state reuse.
+¹ `scripts/compare.py`: **python-louvain 0.16** (`community.best_partition`, `random_state=42`) + networkx 3.6. Install: `pip install networkx python-louvain`
 
-¹ `scripts/compare.py` benchmarks **python-louvain 0.16** (`community.best_partition`, `random_state=42`) with networkx 3.6 for graph construction. Install: `pip install networkx python-louvain`
+² `scripts/go-compare/`: **gonum v0.17** (`community.Modularize`). Correct implementation; loom trades generality for tight inner loop + `sync.Pool` reuse.
 
-² `scripts/go-compare/` standalone Go module benchmarks **gonum v0.17** (`community.Modularize`) on the same graph topology.
+³ `github.com/ledyba/go-louvain`: runs only a single Louvain pass with no supergraph compression — produces ~4,300 communities vs loom's ~22 on the same graph.
+
+⁴ `github.com/vsuryav/leiden-go`: skipped — `refinePartition` sets `improved=true` unconditionally, causing an infinite loop on large random graphs.
 
 Both loom algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
