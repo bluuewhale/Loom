@@ -1,3 +1,3 @@
 module github.com/bluuewhale/loom
 
-go 1.26.1
+go 1.23
