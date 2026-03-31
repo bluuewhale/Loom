@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: "Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests"
-last_updated: "2026-03-30T08:38:00.738Z"
+stopped_at: Completed 14-01-PLAN.md — commStr audit + alloc-savings benchmark suite
+last_updated: "2026-03-31T08:43:32.776Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 3
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 3
   percent: 0
 ---
 
@@ -64,6 +64,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
 | Phase 08-full-detect-pipeline-accuracy-performance P02 | 5 min | 2 tasks | 2 files |
 | Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
+| Phase 14 P01 | 21min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,9 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
 - [Phase 09-edge-cases-and-hardening]: ErrEmptyGraph guard placed after IsDirected check — mirrors ErrDirectedNotSupported pattern
 - [Phase 09-edge-cases-and-hardening]: Star topology test asserts persona count <= degree(center) — Louvain assigns each disconnected leaf singleton community, so center gets 5 personas (bounded, not panic)
+- [Phase 14]: raceEnabled build-tag for -race skip guards in timing tests
+- [Phase 14]: medianSpeedup helper (3 samples) eliminates single-sample noise in warm-start speedup tests
+- [Phase 14]: Package-level init() benchmark state (bench1KPostDelta/Prior/Delta) prevents O(N) setup inside testing.Benchmark calibration loop
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -118,7 +122,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T04:51:34Z
-Stopped at: Completed quick task 260331-j5u — go-compare go-louvain leiden-go README
+Last session: 2026-03-31T08:43:32.773Z
+Stopped at: Completed 14-01-PLAN.md — commStr audit + alloc-savings benchmark suite
 Resume file: None
 Next action: `/gsd:plan-phase 6`
