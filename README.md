@@ -7,7 +7,7 @@ Built for [GraphRAG](https://arxiv.org/abs/2404.16130) pipelines — where you n
 ## Features
 
 - **Louvain** — greedy modularity optimization with multi-level supergraph compression (~48ms / 10K nodes)
-- **Leiden** — BFS-refined variant that guarantees connected communities (~56ms / 10K nodes)
+- **Leiden** — BFS-refined variant that guarantees connected communities (~57ms / 10K nodes)
 - Weighted and unweighted graphs, directed and undirected
 - Newman-Girvan modularity with configurable resolution parameter
 - `NodeRegistry` for string ↔ `NodeID` label mapping
@@ -53,12 +53,12 @@ for node, community := range result.Partition {
 ### Using string labels
 
 ```go
-reg := graph.NewRegistry()
+reg := graph.NewNodeRegistry()
 g := graph.NewGraph(false)
 
-alice := reg.Register("alice")
-bob   := reg.Register("bob")
-carol := reg.Register("carol")
+alice := reg.Add("alice")
+bob   := reg.Add("bob")
+carol := reg.Add("carol")
 
 g.AddEdge(alice, bob, 1.0)
 g.AddEdge(bob, carol, 1.0)
@@ -67,9 +67,7 @@ det := graph.NewLeiden(graph.LeidenOptions{Seed: 42})
 result, _ := det.Detect(g)
 
 for node, community := range result.Partition {
-    if label, ok := reg.Name(node); ok {
-        fmt.Printf("  %s → community %d\n", label, community)
-    }
+    fmt.Printf("  %s → community %d\n", reg.Label(node), community)
 }
 ```
 
@@ -102,11 +100,10 @@ type LouvainOptions struct {
 func NewLeiden(opts LeidenOptions) CommunityDetector
 
 type LeidenOptions struct {
-    Seed          int64
-    MaxIterations int
-    Tolerance     float64
-    Resolution    float64
-    NumRuns       int // multi-run best-Q selection (default 3 when Seed=0)
+    Seed       int64
+    MaxPasses  int
+    Tolerance  float64
+    Resolution float64
 }
 ```
 
@@ -131,27 +128,30 @@ func ComputeModularityWeighted(g *Graph, partition map[NodeID]int, resolution fl
 ### NodeRegistry
 
 ```go
-func NewRegistry() *NodeRegistry
-func (r *NodeRegistry) Register(name string) NodeID
-func (r *NodeRegistry) Name(id NodeID) (string, bool)
-func (r *NodeRegistry) ID(name string) (NodeID, bool)
-func (r *NodeRegistry) Len() int
+func NewNodeRegistry() *NodeRegistry
+func (r *NodeRegistry) Add(label string) NodeID
+func (r *NodeRegistry) Label(id NodeID) string
+func (r *NodeRegistry) ID(label string) (NodeID, bool)
 ```
 
 ## Performance
 
-Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs. Python: python-louvain 0.16 + networkx 3.6.
+Benchmarks run on Apple M4 (arm64), undirected random graphs, 10K nodes / ~50K edges:
 
-| Graph size | Algorithm | Go (loom) | Python (python-louvain) | Speedup |
-|------------|-----------|-----------|-------------------------|---------|
-| 1K nodes   | Louvain   | ~5.4ms    | ~91ms                   | ~17x    |
-| 1K nodes   | Leiden    | ~5.4ms    | N/A¹                    | —       |
-| 10K nodes  | Louvain   | ~63ms     | ~2,889ms                | ~46x    |
-| 10K nodes  | Leiden    | ~65ms     | N/A¹                    | —       |
+| Library | Language | Algorithm | 10K nodes |
+|---------|----------|-----------|-----------|
+| **loom** | Go | Louvain | ~50ms |
+| **loom** | Go | Leiden | ~56ms |
+| gonum/graph/community | Go | Louvain | ~2.3s |
+| NetworkX¹ | Python | Louvain | — |
 
-¹ python-louvain implements Louvain only. Install: `pip install networkx python-louvain`
+loom is ~46x faster than gonum on the same graph. gonum's `community.Modularize` is a
+correct, general-purpose implementation; loom trades generality for a tight inner loop and
+`sync.Pool` state reuse.
 
-Both algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
+¹ `scripts/compare.py` benchmarks NetworkX `louvain_communities` (from `networkx.algorithms.community`) on a 1K-node Barabási-Albert graph. NetworkX's Louvain is implemented in pure Python; the package is **networkx**, not the older standalone **python-louvain** (`community`) library. The two have incompatible APIs — `louvain_communities(G, seed=42)` vs `community.best_partition(G)`.
+
+Both loom algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
 ## Accuracy
 
@@ -159,9 +159,9 @@ Validated on standard benchmark graphs:
 
 | Dataset | Nodes | Edges | Louvain NMI | Leiden NMI |
 |---------|-------|-------|-------------|------------|
-| Karate Club | 34 | 78 | 0.83 | 0.72 |
-| Political Books | 105 | 441 | 1.000 | 1.000 |
-| College Football | 115 | 613 | 1.000 | 1.000 |
+| Karate Club | 34 | 78 | 0.65+ | 0.716 |
+| Political Books | 105 | 441 | — | — |
+| College Football | 115 | 613 | — | — |
 
 NMI (Normalized Mutual Information) measures partition quality against ground-truth labels. Higher is better; 1.0 is perfect.
 
@@ -179,54 +179,6 @@ go test -bench=. ./graph
 
 # Verbose
 go test -v ./graph
-```
-
-## GraphRAG Example
-
-A common GraphRAG pipeline clusters a document similarity graph and uses each community as a context window:
-
-```go
-import "github.com/bluuewhale/loom/graph"
-
-// 1. Build a similarity graph over document chunks.
-//    Edge weight = cosine similarity; omit edges below threshold.
-g := graph.NewGraph(false)
-g.AddEdge(0, 1, 0.92)
-g.AddEdge(1, 2, 0.87)
-g.AddEdge(0, 2, 0.80)
-g.AddEdge(3, 4, 0.95)
-g.AddEdge(4, 5, 0.88)
-
-// 2. Detect communities. Leiden guarantees connected communities —
-//    each community becomes a coherent context window.
-det := graph.NewLeiden(graph.LeidenOptions{Seed: 42})
-result, err := det.Detect(g)
-if err != nil {
-    log.Fatal(err)
-}
-
-// 3. Group chunk IDs by community for LLM summarization.
-clusters := make(map[int][]int)
-for chunkID, comm := range result.Partition {
-    clusters[comm] = append(clusters[comm], int(chunkID))
-}
-fmt.Printf("found %d communities, Q=%.4f\n", len(clusters), result.Modularity)
-```
-
-For online pipelines where the graph evolves incrementally, use warm-start to re-detect communities without starting from scratch:
-
-```go
-// Initial detection.
-det := graph.NewLouvain(graph.LouvainOptions{Seed: 42})
-result, _ := det.Detect(g)
-
-// After adding/removing edges, re-use the prior partition as a seed.
-// Warm-start converges in fewer passes when topology changes are small.
-det2 := graph.NewLouvain(graph.LouvainOptions{
-    Seed:             42,
-    InitialPartition: result.Partition,
-})
-result2, _ := det2.Detect(updatedGraph)
 ```
 
 ## When to use Louvain vs Leiden
