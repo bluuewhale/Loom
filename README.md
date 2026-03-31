@@ -136,14 +136,22 @@ func (r *NodeRegistry) ID(label string) (NodeID, bool)
 
 ## Performance
 
-Benchmarks run on standard hardware, undirected graphs with random structure:
+Benchmarks run on Apple M4 (arm64), undirected random graphs, 10K nodes / ~50K edges:
 
-| Graph size | Algorithm | Time |
-|------------|-----------|------|
-| 10K nodes  | Louvain   | ~48ms |
-| 10K nodes  | Leiden    | ~57ms |
+| Library | Language | Algorithm | 10K nodes |
+|---------|----------|-----------|-----------|
+| **loom** | Go | Louvain | ~50ms |
+| **loom** | Go | Leiden | ~56ms |
+| gonum/graph/community | Go | Louvain | ~2.3s |
+| NetworkX¹ | Python | Louvain | — |
 
-Both algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
+loom is ~46x faster than gonum on the same graph. gonum's `community.Modularize` is a
+correct, general-purpose implementation; loom trades generality for a tight inner loop and
+`sync.Pool` state reuse.
+
+¹ `scripts/compare.py` benchmarks NetworkX `louvain_communities` (from `networkx.algorithms.community`) on a 1K-node Barabási-Albert graph. NetworkX's Louvain is implemented in pure Python; the package is **networkx**, not the older standalone **python-louvain** (`community`) library. The two have incompatible APIs — `louvain_communities(G, seed=42)` vs `community.best_partition(G)`.
+
+Both loom algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
 ## Accuracy
 
