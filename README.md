@@ -144,23 +144,27 @@ Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs.
 
 | Graph size | Library | Algorithm | Time | Communities | Notes |
 |------------|---------|-----------|------|-------------|-------|
-| 1K nodes | **loom** | Louvain | ~5.4ms | — | multi-level supergraph compression |
-| 1K nodes | **loom** | Leiden | ~5.4ms | — | BFS-refined, connected communities |
-| 1K nodes | python-louvain¹ | Louvain | ~91ms | — | |
-| 10K nodes | **loom** | Louvain | ~63ms | ~22 | **~46x vs Python, ~37x vs gonum** |
-| 10K nodes | **loom** | Leiden | ~65ms | ~22 | |
+| 1K nodes | **loom** | Louvain | ~5.4ms | — | ~16x vs python-louvain |
+| 1K nodes | **loom** | Leiden | ~5.4ms | — | ~7x vs leidenalg |
+| 1K nodes | python-louvain¹ | Louvain | ~86ms | — | |
+| 1K nodes | leidenalg⁵ | Leiden | ~38ms | — | |
+| 10K nodes | **loom** | Louvain | ~63ms | ~22 | ~42x vs python-louvain, ~37x vs gonum |
+| 10K nodes | **loom** | Leiden | ~65ms | ~22 | ~10x vs leidenalg |
 | 10K nodes | gonum² | Louvain | ~2.3s | ~22 | `community.Modularize`, general-purpose |
-| 10K nodes | go-louvain³ | Louvain | ~21ms | ~101 | converges but no supergraph compression — lower quality than loom/gonum |
+| 10K nodes | go-louvain³ | Louvain | ~21ms | ~101 | converges but lower quality than loom/gonum |
 | 10K nodes | leiden-go⁴ | Leiden | N/A | N/A | infinite loop bug on large graphs |
-| 10K nodes | python-louvain¹ | Louvain | ~2,889ms | — | |
+| 10K nodes | python-louvain¹ | Louvain | ~2,613ms | — | |
+| 10K nodes | leidenalg⁵ | Leiden | ~621ms | — | |
 
 ¹ `scripts/compare.py`: **python-louvain 0.16** (`community.best_partition`, `random_state=42`) + networkx 3.6. Install: `pip install networkx python-louvain`
 
 ² `scripts/go-compare/`: **gonum v0.17** (`community.Modularize`). Correct implementation; loom trades generality for tight inner loop + `sync.Pool` reuse.
 
-³ `github.com/ledyba/go-louvain`: `NextLevel()` runs one Louvain phase + supergraph compression step. Running to convergence (repeated calls until node count stabilises) takes ~21ms and yields ~101 communities — loom's multi-level compression achieves ~22 communities at ~63ms.
+³ `github.com/ledyba/go-louvain`: `NextLevel()` runs one Louvain phase + supergraph compression step. Running to convergence takes ~21ms and yields ~101 communities — loom's multi-level compression achieves ~22 communities at ~63ms.
 
 ⁴ `github.com/vsuryav/leiden-go`: skipped — `refinePartition` sets `improved=true` unconditionally, causing an infinite loop on large random graphs.
+
+⁵ `scripts/compare.py`: **leidenalg 0.11** (`find_partition`, `ModularityVertexPartition`, `seed=42`) with igraph 1.0 C++ backend. Install: `pip install leidenalg`
 
 Both loom algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
