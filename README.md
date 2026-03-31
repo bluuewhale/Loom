@@ -136,14 +136,19 @@ func (r *NodeRegistry) ID(label string) (NodeID, bool)
 
 ## Performance
 
-Benchmarks run on standard hardware, undirected graphs with random structure:
+Benchmarks run on standard hardware, undirected graphs with random structure (~10 avg degree):
 
-| Graph size | Algorithm | Time |
-|------------|-----------|------|
-| 10K nodes  | Louvain   | ~48ms |
-| 10K nodes  | Leiden    | ~57ms |
+| Library | Algorithm | 10K nodes | Communities | Notes |
+|---------|-----------|-----------|-------------|-------|
+| **loom** (this library) | Louvain | ~48ms | ~22 | multi-level supergraph compression |
+| **loom** (this library) | Leiden | ~57ms | ~22 | BFS-refined, connected communities |
+| gonum (`gonum.org/v1/gonum`) | Louvain | ~2.3s | ~22 | `community.Modularize` |
+| go-louvain (`ledyba/go-louvain`) | Louvain (1 pass) | ~10ms | ~4,300 | single `NextLevel` call — no multi-level compression; community count is not comparable |
+| leiden-go (`vsuryav/leiden-go`) | Leiden | N/A | N/A | skipped — infinite loop bug in `refinePartition` on large graphs |
 
-Both algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
+loom timings are from `go test -bench=. ./graph`. gonum and go-louvain timings are from `scripts/go-compare/` (`go run scripts/go-compare`).
+
+Both loom algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
 ## Accuracy
 
