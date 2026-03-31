@@ -136,20 +136,17 @@ func (r *NodeRegistry) ID(label string) (NodeID, bool)
 
 ## Performance
 
-Benchmarks run on Apple M4 (arm64), undirected random graphs, 10K nodes / ~50K edges:
+Benchmarks run on standard hardware, undirected graphs with random structure (~10 avg degree):
 
-| Library | Language | Algorithm | 10K nodes |
-|---------|----------|-----------|-----------|
-| **loom** | Go | Louvain | ~50ms |
-| **loom** | Go | Leiden | ~56ms |
-| gonum/graph/community | Go | Louvain | ~2.3s |
-| NetworkX¹ | Python | Louvain | — |
+| Library | Algorithm | 10K nodes | Communities | Notes |
+|---------|-----------|-----------|-------------|-------|
+| **loom** (this library) | Louvain | ~48ms | ~22 | multi-level supergraph compression |
+| **loom** (this library) | Leiden | ~57ms | ~22 | BFS-refined, connected communities |
+| gonum (`gonum.org/v1/gonum`) | Louvain | ~2.3s | ~22 | `community.Modularize` |
+| go-louvain (`ledyba/go-louvain`) | Louvain (1 pass) | ~10ms | ~4,300 | single `NextLevel` call — no multi-level compression; community count is not comparable |
+| leiden-go (`vsuryav/leiden-go`) | Leiden | N/A | N/A | skipped — infinite loop bug in `refinePartition` on large graphs |
 
-loom is ~46x faster than gonum on the same graph. gonum's `community.Modularize` is a
-correct, general-purpose implementation; loom trades generality for a tight inner loop and
-`sync.Pool` state reuse.
-
-¹ `scripts/compare.py` benchmarks NetworkX `louvain_communities` (from `networkx.algorithms.community`) on a 1K-node Barabási-Albert graph. NetworkX's Louvain is implemented in pure Python; the package is **networkx**, not the older standalone **python-louvain** (`community`) library. The two have incompatible APIs — `louvain_communities(G, seed=42)` vs `community.best_partition(G)`.
+loom timings are from `go test -bench=. ./graph`. gonum and go-louvain timings are from `scripts/go-compare/` (`go run scripts/go-compare`).
 
 Both loom algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
