@@ -1463,6 +1463,235 @@ func TestUpdate_MultipleSequentialUpdates(t *testing.T) {
 	}
 }
 
+// --- Result invariant tests: ONLINE-12, ONLINE-13 / Phase 13 ---
+
+// assertResultInvariants checks that result satisfies all structural invariants:
+//  1. Every node in g appears in NodeCommunities with at least one community index.
+//  2. Every community index referenced in NodeCommunities is a valid index into
+//     Communities (no out-of-bounds).
+//  3. NodeCommunities and Communities are mutually consistent: for every (node, commIdx)
+//     pair in NodeCommunities, node appears in Communities[commIdx]; and vice versa.
+func assertResultInvariants(t *testing.T, g *Graph, result OverlappingCommunityResult) {
+	t.Helper()
+
+	// Invariant 1: every node in g appears in NodeCommunities with >= 1 community.
+	for _, id := range g.Nodes() {
+		comms, ok := result.NodeCommunities[id]
+		if !ok {
+			t.Errorf("invariant violation: node %d missing from NodeCommunities", id)
+			continue
+		}
+		if len(comms) == 0 {
+			t.Errorf("invariant violation: node %d has 0 community memberships", id)
+		}
+	}
+
+	// Invariant 2: every community index is in-bounds.
+	nComms := len(result.Communities)
+	for id, comms := range result.NodeCommunities {
+		for _, ci := range comms {
+			if ci < 0 || ci >= nComms {
+				t.Errorf("invariant violation: node %d references community index %d, out of range [0,%d)", id, ci, nComms)
+			}
+		}
+	}
+
+	// Invariant 3a: NodeCommunities -> Communities consistency.
+	// Build Communities membership sets for O(1) lookup.
+	memberOf := make([]map[NodeID]struct{}, nComms)
+	for i, members := range result.Communities {
+		memberOf[i] = make(map[NodeID]struct{}, len(members))
+		for _, n := range members {
+			memberOf[i][n] = struct{}{}
+		}
+	}
+	for id, comms := range result.NodeCommunities {
+		for _, ci := range comms {
+			if ci < 0 || ci >= nComms {
+				continue // already reported above
+			}
+			if _, present := memberOf[ci][id]; !present {
+				t.Errorf("invariant violation: NodeCommunities[%d] contains community %d but Communities[%d] does not list node %d", id, ci, ci, id)
+			}
+		}
+	}
+
+	// Invariant 3b: Communities -> NodeCommunities consistency.
+	for ci, members := range result.Communities {
+		for _, id := range members {
+			comms, ok := result.NodeCommunities[id]
+			if !ok {
+				t.Errorf("invariant violation: Communities[%d] lists node %d but node is absent from NodeCommunities", ci, id)
+				continue
+			}
+			found := false
+			for _, c := range comms {
+				if c == ci {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("invariant violation: Communities[%d] lists node %d but NodeCommunities[%d] does not reference community %d", ci, id, id, ci)
+			}
+		}
+	}
+}
+
+// TestUpdateResultInvariants is a table-driven test covering 6 delta scenarios.
+// Each case runs Update() and asserts that the result satisfies all structural
+// invariants via assertResultInvariants. (ONLINE-12)
+func TestUpdateResultInvariants(t *testing.T) {
+	seed := int64(42)
+	makeDetector := func() OnlineOverlappingCommunityDetector {
+		return NewOnlineEgoSplitting(EgoSplittingOptions{
+			LocalDetector:  NewLouvain(LouvainOptions{Seed: seed}),
+			GlobalDetector: NewLouvain(LouvainOptions{Seed: seed, MaxPasses: 1}),
+		})
+	}
+
+	// Build the base graph and a valid prior result.
+	base := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+	det := makeDetector()
+	basePrior, err := det.Detect(base)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		prepare func() (g *Graph, delta GraphDelta, prior OverlappingCommunityResult)
+	}{
+		{
+			name: "empty_delta",
+			prepare: func() (*Graph, GraphDelta, OverlappingCommunityResult) {
+				g := buildGraph(testdata.KarateClubEdges)
+				return g, GraphDelta{}, basePrior
+			},
+		},
+		{
+			name: "single_node_addition_isolated",
+			prepare: func() (*Graph, GraphDelta, OverlappingCommunityResult) {
+				g := buildGraph(testdata.KarateClubEdges)
+				g.AddNode(34, 1.0) // isolated
+				return g, GraphDelta{AddedNodes: []NodeID{34}}, basePrior
+			},
+		},
+		{
+			name: "single_edge_addition",
+			prepare: func() (*Graph, GraphDelta, OverlappingCommunityResult) {
+				g := buildGraph(testdata.KarateClubEdges)
+				g.AddEdge(16, 24, 1.0) // new edge between existing nodes
+				delta := GraphDelta{AddedEdges: []DeltaEdge{{From: 16, To: 24, Weight: 1.0}}}
+				return g, delta, basePrior
+			},
+		},
+		{
+			name: "multi_node_batch_addition",
+			prepare: func() (*Graph, GraphDelta, OverlappingCommunityResult) {
+				g := buildGraph(testdata.KarateClubEdges)
+				g.AddNode(34, 1.0)
+				g.AddNode(35, 1.0)
+				g.AddNode(36, 1.0)
+				delta := GraphDelta{AddedNodes: []NodeID{34, 35, 36}}
+				return g, delta, basePrior
+			},
+		},
+		{
+			name: "node_and_edge_together",
+			prepare: func() (*Graph, GraphDelta, OverlappingCommunityResult) {
+				g := buildGraph(testdata.KarateClubEdges)
+				g.AddNode(34, 1.0)
+				g.AddEdge(0, 34, 1.0)
+				delta := GraphDelta{
+					AddedNodes: []NodeID{34},
+					AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+				}
+				return g, delta, basePrior
+			},
+		},
+		{
+			name: "nil_carry_forward_fallback",
+			prepare: func() (*Graph, GraphDelta, OverlappingCommunityResult) {
+				g := buildGraph(testdata.KarateClubEdges)
+				g.AddNode(34, 1.0)
+				g.AddEdge(0, 34, 1.0)
+				delta := GraphDelta{
+					AddedNodes: []NodeID{34},
+					AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+				}
+				// Zero-value prior triggers Detect() fallback path.
+				return g, delta, OverlappingCommunityResult{}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, delta, prior := tt.prepare()
+			d := makeDetector()
+			result, err := d.Update(g, delta, prior)
+			if err != nil {
+				t.Fatalf("Update error: %v", err)
+			}
+			assertResultInvariants(t, g, result)
+		})
+	}
+}
+
+// TestEgoSplittingConcurrentUpdate verifies that concurrent Update() calls on
+// distinct OnlineOverlappingCommunityDetector instances produce no data races.
+// Each goroutine owns its own detector, graph, and prior — no shared mutable state.
+// Run with -race to catch violations. (ONLINE-13)
+func TestEgoSplittingConcurrentUpdate(t *testing.T) {
+	const goroutines = 8
+	const updatesPerGoroutine = 3
+
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			// Each goroutine has its own independent detector and graph.
+			det := NewOnlineEgoSplitting(EgoSplittingOptions{
+				LocalDetector:  NewLouvain(LouvainOptions{Seed: int64(idx + 1)}),
+				GlobalDetector: NewLouvain(LouvainOptions{Seed: int64(idx + 1), MaxPasses: 1}),
+			})
+
+			g := buildGraph(testdata.KarateClubEdges) // 34 nodes, 0-33
+			prior, err := det.Detect(g)
+			if err != nil {
+				t.Errorf("goroutine %d Detect error: %v", idx, err)
+				return
+			}
+
+			// Perform a series of sequential updates within this goroutine.
+			for step := 0; step < updatesPerGoroutine; step++ {
+				newNode := NodeID(34 + idx*updatesPerGoroutine + step)
+				g.AddNode(newNode, 1.0)
+				g.AddEdge(NodeID(idx%34), newNode, 1.0)
+				delta := GraphDelta{
+					AddedNodes: []NodeID{newNode},
+					AddedEdges: []DeltaEdge{{From: NodeID(idx % 34), To: newNode, Weight: 1.0}},
+				}
+
+				result, err := det.Update(g, delta, prior)
+				if err != nil {
+					t.Errorf("goroutine %d step %d Update error: %v", idx, step, err)
+					return
+				}
+				if len(result.Communities) == 0 {
+					t.Errorf("goroutine %d step %d: no communities in result", idx, step)
+					return
+				}
+				prior = result
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
 // BenchmarkUpdate_EmptyDelta measures allocations for Update with an empty delta.
 // Expected: 0 allocs/op (prior is returned as-is). (ONLINE-03)
 func BenchmarkUpdate_EmptyDelta(b *testing.B) {
