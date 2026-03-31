@@ -3,6 +3,7 @@ package graph
 import (
 	"math"
 	"slices"
+	"time"
 )
 
 // Detect runs the Leiden community detection algorithm on graph g.
@@ -13,6 +14,10 @@ import (
 // It returns ErrDirectedNotSupported for directed graphs.
 // For empty graphs, it returns an empty CommunityResult with no error.
 // The returned Partition is always 0-indexed contiguous.
+//
+// When Seed != 0, a single deterministic run is performed (NumRuns is ignored).
+// When Seed == 0 and NumRuns > 1 (or NumRuns == 0, defaulting to 3), multiple
+// independent runs are executed and the best-Q result is returned.
 func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 	// --- Guard clauses ---
 	if g.IsDirected() {
@@ -45,13 +50,56 @@ func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 		}, nil
 	}
 
+	// Seed!=0 → single deterministic run; NumRuns is ignored entirely.
+	if d.opts.Seed != 0 {
+		return d.runOnce(g, d.opts.Seed)
+	}
+
+	// Seed==0: resolve NumRuns (0 → default 3).
+	effectiveNumRuns := d.opts.NumRuns
+	if effectiveNumRuns == 0 {
+		effectiveNumRuns = 3
+	}
+	// NumRuns==1 → single run with a random seed.
+	if effectiveNumRuns == 1 {
+		return d.runOnce(g, 0)
+	}
+
+	// Multi-run: compute baseSeed once before the loop (avoids same-nanosecond collisions).
+	baseSeed := time.Now().UnixNano()
+	var bestResult CommunityResult
+	bestQ := math.Inf(-1)
+	var lastErr error
+	for i := 0; i < effectiveNumRuns; i++ {
+		res, err := d.runOnce(g, baseSeed+int64(i))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if res.Modularity > bestQ {
+			bestQ = res.Modularity
+			bestResult = res
+		}
+	}
+	if bestQ == math.Inf(-1) {
+		return CommunityResult{}, lastErr
+	}
+	// At least one run succeeded — return its result. We intentionally discard lastErr
+	// because partial multi-run failures (some iterations succeed, others fail) should
+	// not prevent returning the best successful result.
+	return bestResult, nil
+}
+
+// runOnce executes a single Leiden detection run on g using the given seed.
+// seed==0 triggers non-deterministic (time-based) seeding inside acquireLeidenState.
+// The returned Partition is always 0-indexed contiguous.
+func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) {
 	// --- Resolve zero-value options ---
 	resolution := d.opts.Resolution
 	if resolution == 0.0 {
 		resolution = 1.0
 	}
 	maxIterations := d.opts.MaxIterations // 0 = unlimited
-	seed := d.opts.Seed                   // 0 = random (handled in newLeidenState)
 
 	// nodeMapping maps each original NodeID to its corresponding supernode NodeID
 	// in the current supergraph. Initially the identity mapping.
