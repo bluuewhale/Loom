@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: verifying
-stopped_at: "Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests"
-last_updated: "2026-03-31T04:40:13.956Z"
+milestone: v1.3
+milestone_name: Online Ego-Splitting
+status: planning
+stopped_at: "Milestone v1.3 started — defining requirements and roadmap"
+last_updated: "2026-03-31T04:45:00.000Z"
 last_activity: 2026-03-31
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -18,19 +18,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-29)
+See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 09 — edge-cases-and-hardening
+**Current focus:** v1.3 — Online Ego-Splitting (incremental community detection)
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-31
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-31 — Milestone v1.3 started
 
-Progress: [____________] 0% (0/4 phases complete)
+Progress: [____________] 0% (0/? phases complete)
 
 ## Performance Metrics
 
