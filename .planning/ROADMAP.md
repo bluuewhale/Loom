@@ -100,7 +100,9 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. A table-driven test covering at least: single-node addition, single-edge addition, multi-node batch addition, and an empty delta — asserts that every node in the updated graph appears in ≥1 community and that `NodeCommunities`/`Communities` are mutually consistent
   2. `go test -race ./graph/...` passes with zero race reports on a test that launches N goroutines each calling `Update()` concurrently on their own `EgoSplittingDetector` instance
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 13-01-PLAN.md — assertResultInvariants helper, TestUpdateResultInvariants (6 delta cases), TestEgoSplittingConcurrentUpdate (4 goroutines x 3 Updates, -race)
 
 ## Progress
 
