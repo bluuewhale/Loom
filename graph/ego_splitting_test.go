@@ -1468,49 +1468,89 @@ func BenchmarkUpdate_EmptyDelta(b *testing.B) {
 
 // BenchmarkEgoSplittingUpdate measures Update() on a 1K-node BA graph with a
 // minimal delta: one new leaf node attached to the lowest-degree existing node.
+// Uses shared bench1KPostDelta / bench1KPrior / bench1KDelta (initialized in init).
 // Companion benchmark for TestEgoSplittingUpdateAllocSavings.
 func BenchmarkEgoSplittingUpdate(b *testing.B) {
-	// Build a mutable copy of bench1K so we can attach a new node.
-	g := NewGraph(false)
-	for _, n := range bench1K.Nodes() {
-		for _, e := range bench1K.Neighbors(n) {
-			if n <= e.To {
-				g.AddEdge(n, e.To, e.Weight)
-			}
-		}
-	}
-
 	det := NewOnlineEgoSplitting(EgoSplittingOptions{
 		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
 		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
 	})
-	prior, err := det.Detect(g)
-	if err != nil {
-		b.Fatalf("Detect error: %v", err)
-	}
-
-	// Find the lowest-degree node for minimal affected-set size.
-	var attachTo NodeID
-	minDeg := 999999
-	for _, n := range g.Nodes() {
-		if d := len(g.Neighbors(n)); d < minDeg {
-			minDeg = d
-			attachTo = n
-		}
-	}
-
-	newNode := NodeID(1000)
-	g.AddNode(newNode, 1.0)
-	g.AddEdge(attachTo, newNode, 1.0)
-	delta := GraphDelta{
-		AddedNodes: []NodeID{newNode},
-		AddedEdges: []DeltaEdge{{From: attachTo, To: newNode, Weight: 1.0}},
-	}
-
+	det.Update(bench1KPostDelta, bench1KDelta, bench1KPrior) // warmup
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_, _ = det.Update(g, delta, prior)
+		_, _ = det.Update(bench1KPostDelta, bench1KDelta, bench1KPrior)
+	}
+}
+
+// bench1KPostDelta is the shared post-delta graph for alloc-savings benchmarks:
+// bench1K (1K nodes) plus one new leaf node (1000) attached to the min-degree node.
+// Initialized once at package load alongside bench1K/bench10K.
+var (
+	bench1KPostDelta    *Graph
+	bench1KAttachTarget NodeID // min-degree node in bench1K (stable: node 857, deg=5)
+	bench1KNewNode      = NodeID(1000)
+	bench1KDelta        GraphDelta
+	bench1KPrior        OverlappingCommunityResult
+)
+
+func init() {
+	// Build mutable copy of bench1K for post-delta graph.
+	bench1KPostDelta = NewGraph(false)
+	for _, n := range bench1K.Nodes() {
+		for _, e := range bench1K.Neighbors(n) {
+			if n <= e.To {
+				bench1KPostDelta.AddEdge(n, e.To, e.Weight)
+			}
+		}
+	}
+	// Find min-degree node (stable in seeded BA graph: node 857, degree 5).
+	minDeg := 999999
+	for _, n := range bench1KPostDelta.Nodes() {
+		if d := len(bench1KPostDelta.Neighbors(n)); d < minDeg {
+			minDeg = d
+			bench1KAttachTarget = n
+		}
+	}
+	bench1KPostDelta.AddNode(bench1KNewNode, 1.0)
+	bench1KPostDelta.AddEdge(bench1KAttachTarget, bench1KNewNode, 1.0)
+	bench1KDelta = GraphDelta{
+		AddedNodes: []NodeID{bench1KNewNode},
+		AddedEdges: []DeltaEdge{{From: bench1KAttachTarget, To: bench1KNewNode, Weight: 1.0}},
+	}
+	// Pre-compute prior result on bench1K (before delta) for Update benchmark.
+	onlineDet := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	// Detect on the pre-delta graph (bench1K without node 1000).
+	preDelta := NewGraph(false)
+	for _, n := range bench1K.Nodes() {
+		for _, e := range bench1K.Neighbors(n) {
+			if n <= e.To {
+				preDelta.AddEdge(n, e.To, e.Weight)
+			}
+		}
+	}
+	var err error
+	bench1KPrior, err = onlineDet.Detect(preDelta)
+	if err != nil {
+		panic("bench1KPrior init failed: " + err.Error())
+	}
+}
+
+// BenchmarkEgoSplittingDetect1K measures cold Detect() on bench1KPostDelta (1001 nodes).
+// Companion to BenchmarkEgoSplittingUpdate for alloc ratio comparison.
+func BenchmarkEgoSplittingDetect1K(b *testing.B) {
+	det := NewEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+	det.Detect(bench1KPostDelta) // warmup
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = det.Detect(bench1KPostDelta)
 	}
 }
 
@@ -1519,50 +1559,18 @@ func BenchmarkEgoSplittingUpdate(b *testing.B) {
 // objects than a full cold Detect() on the same post-delta graph.
 //
 // The BA graph (bench1K, seed=42, m=5) has ~5K edges. Attaching one new leaf
-// to the min-degree node touches only ~5-7 nodes' ego-nets (0.7% of the graph),
-// leaving ~993 ego-nets carried over from the prior result. The savings floor of
-// 2.0x is conservative: empirically measured at ~5x on Apple M4.
+// to the min-degree node (degree 5) touches only ~7 nodes' ego-nets (0.7% of
+// the graph), leaving ~993 ego-nets carried over from the prior result.
+// The savings floor of 2.0x is conservative: empirically measured at ~4-5x.
 //
-// Skip in -short mode (calls testing.Benchmark internally).
+// Skipped in -short mode (calls testing.Benchmark internally).
 func TestEgoSplittingUpdateAllocSavings(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping alloc-savings test in short mode")
 	}
 
 	updateResult := testing.Benchmark(BenchmarkEgoSplittingUpdate)
-	// Cold Detect on the same post-delta graph (1001 nodes).
-	detectResult := testing.Benchmark(func(b *testing.B) {
-		g := NewGraph(false)
-		for _, n := range bench1K.Nodes() {
-			for _, e := range bench1K.Neighbors(n) {
-				if n <= e.To {
-					g.AddEdge(n, e.To, e.Weight)
-				}
-			}
-		}
-		// Find lowest-degree node for the same topology as BenchmarkEgoSplittingUpdate.
-		var attachTo NodeID
-		minDeg := 999999
-		for _, n := range g.Nodes() {
-			if d := len(g.Neighbors(n)); d < minDeg {
-				minDeg = d
-				attachTo = n
-			}
-		}
-		newNode := NodeID(1000)
-		g.AddNode(newNode, 1.0)
-		g.AddEdge(attachTo, newNode, 1.0)
-
-		det := NewEgoSplitting(EgoSplittingOptions{
-			LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
-			GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
-		})
-		b.ResetTimer()
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_, _ = det.Detect(g)
-		}
-	})
+	detectResult := testing.Benchmark(BenchmarkEgoSplittingDetect1K)
 
 	updateAllocs := updateResult.AllocsPerOp()
 	detectAllocs := detectResult.AllocsPerOp()
