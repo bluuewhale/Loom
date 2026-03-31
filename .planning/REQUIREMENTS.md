@@ -59,16 +59,16 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| ONLINE-01 | TBD | Planned |
-| ONLINE-02 | TBD | Planned |
-| ONLINE-03 | TBD | Planned |
-| ONLINE-04 | TBD | Planned |
-| ONLINE-05 | TBD | Planned |
-| ONLINE-06 | TBD | Planned |
-| ONLINE-07 | TBD | Planned |
-| ONLINE-08 | TBD | Planned |
-| ONLINE-09 | TBD | Planned |
-| ONLINE-10 | TBD | Planned |
-| ONLINE-11 | TBD | Planned |
-| ONLINE-12 | TBD | Planned |
-| ONLINE-13 | TBD | Planned |
+| ONLINE-01 | Phase 10 | Planned |
+| ONLINE-02 | Phase 10 | Planned |
+| ONLINE-03 | Phase 10 | Planned |
+| ONLINE-04 | Phase 10 | Planned |
+| ONLINE-05 | Phase 11 | Planned |
+| ONLINE-06 | Phase 11 | Planned |
+| ONLINE-07 | Phase 11 | Planned |
+| ONLINE-11 | Phase 11 | Planned |
+| ONLINE-08 | Phase 12 | Planned |
+| ONLINE-09 | Phase 12 | Planned |
+| ONLINE-10 | Phase 12 | Planned |
+| ONLINE-12 | Phase 13 | Planned |
+| ONLINE-13 | Phase 13 | Planned |
