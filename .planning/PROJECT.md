@@ -8,7 +8,30 @@
 
 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
 
-## Current State (v1.1 — Phase 05 complete 2026-03-30)
+## Current Milestone: v1.2 Overlapping Community Detection
+
+**Goal:** Ego Splitting Framework (Google, 2017) 논문 Algorithm 1~3을 완전 구현하여 loom에 Overlapping Community Detection 추가
+
+**Target features:**
+- Algorithm 1: 각 노드의 ego-net 구성 + 내부 community detection
+- Algorithm 2: Persona graph 생성 (노드 → persona 분할)
+- Algorithm 3: Persona graph에서 community detection → 원본 그래프의 overlapping community로 복원
+- `EgoSplitting` detector — `OverlappingCommunityDetector` 인터페이스, 내부 알고리즘으로 Louvain/Leiden 재사용
+- `OverlappingCommunityResult` 타입 (노드 하나가 다수 커뮤니티 소속)
+- 정확도 검증: Karate Club / Football / Polbooks NMI 기준
+- 성능 목표: 10K 노드 ~200-300ms (persona graph 2-3x 오버헤드 허용)
+
+## Current State (v1.2 — ALL PHASES COMPLETE 2026-03-30)
+
+**v1.2 milestone complete — Ego Splitting Framework fully implemented.** All 4 v1.2 phases (06–09) done.
+
+**Phase 09 complete — Edge Cases and Hardening.** `ErrEmptyGraph` sentinel + guard in `Detect()`, isolated-node singleton community, star-topology safety. All degenerate inputs handled. (Validated in Phase 09)
+
+**Phase 08 complete — Full Detect Pipeline + Accuracy + Performance.** `Detect()` wired end-to-end: buildPersonaGraph → GlobalDetector → mapPersonasToOriginal → OverlappingCommunityResult. `OmegaIndex` (Collins & Dent 1988) in `graph/omega.go`. Accuracy: KarateClub=0.35, Football=0.82, Polbooks=0.48 (Omega). Race-safe. Benchmark: ~1.7s/op (parallel construction deferred to v1.3). (Validated in Phase 08)
+
+**Phase 07 complete — Persona Graph Infrastructure implemented.** `buildEgoNet` (Algorithm 1), `buildPersonaGraph` (Algorithm 2), `mapPersonasToOriginal` (Algorithm 3 helper) all in `graph/ego_splitting.go`. Karate Club test confirms 66 personas from 34 nodes with overlapping membership. (Validated in Phase 07)
+
+**Phase 06 complete — OverlappingCommunityDetector interface scaffolded.** `OverlappingCommunityDetector`, `OverlappingCommunityResult`, `EgoSplittingOptions`, and `NewEgoSplitting` stub defined in `graph/ego_splitting.go`. All downstream phases can now code against these types. (Validated in Phase 06: Types and Interfaces)
 
 **Warm Start (online community detection) added.** `InitialPartition map[NodeID]int` field on `LouvainOptions` and `LeidenOptions` — pass a prior `CommunityResult.Partition` to seed the algorithm's initial state for faster convergence on incrementally updated graphs. Nil = cold start (zero breaking change).
 
@@ -55,9 +78,15 @@ graph/
 
 - ✓ Warm start (online community detection) — `InitialPartition` on `LouvainOptions`/`LeidenOptions`, warm-seed `reset()`, `firstPass` guard — validated in Phase 05: Warm Start
 
-### Active
+### Active — v1.2
 
-*(Next milestone TBD — see /gsd:new-milestone)*
+- ✓ `OverlappingCommunityDetector` 인터페이스 및 `OverlappingCommunityResult` 타입 정의 — v1.2 Phase 06
+- ✓ Ego Splitting Framework Algorithm 1: ego-net 구성 + 내부 community detection — v1.2 Phase 07
+- ✓ Ego Splitting Framework Algorithm 2: persona graph 생성 — v1.2 Phase 07
+- ✓ Ego Splitting Framework Algorithm 3: persona graph detection → overlapping community 복원 — v1.2 Phase 08
+- ✓ concurrent-safe 설계 — `go test -race` 통과 — v1.2 Phase 08
+- ✓ 정확도 검증: 3개 그래프 OmegaIndex 검증 (Football=0.82, Karate=0.35, Polbooks=0.48) — v1.2 Phase 08
+- ✓ 10K 노드 벤치마크 (1.7s/op; 300ms target deferred to v1.3 parallel construction) — v1.2 Phase 08
 
 ### Out of Scope
 
@@ -93,4 +122,4 @@ graph/
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-30 after v1.1 milestone complete — Online Community Detection shipped.*
+*Last updated: 2026-03-30 — v1.2 milestone complete: Ego Splitting Framework (Phases 06–09). All algorithms implemented, accuracy validated, edge cases hardened.*
