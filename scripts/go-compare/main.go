@@ -103,18 +103,29 @@ func benchGoLouvain(edges [][2]int, runs int) time.Duration {
 
 	fmt.Printf("  [go-louvain] graph: %d nodes, %d edges\n", n, len(edges))
 
+	// runToConvergence repeatedly calls NextLevel until the community count stops shrinking.
+	runToConvergence := func() (time.Duration, int) {
+		g := makeGraph()
+		start := time.Now()
+		for {
+			next := g.NextLevel(0, 0.0001)
+			if len(next.Nodes) >= len(g.Nodes) {
+				break
+			}
+			g = next
+		}
+		return time.Since(start), len(g.Nodes)
+	}
+
 	// Warm up
-	_ = makeGraph().NextLevel(0, 0.0001)
+	_, _ = runToConvergence()
 
 	var total time.Duration
 	var nComm int
 	for i := 0; i < runs; i++ {
-		g := makeGraph()
-		start := time.Now()
-		result := g.NextLevel(0, 0.0001)
-		elapsed := time.Since(start)
+		elapsed, communities := runToConvergence()
 		total += elapsed
-		nComm = len(result.Nodes)
+		nComm = communities
 		fmt.Printf("    run %d: %v  (%d communities)\n", i+1, elapsed, nComm)
 	}
 	avg := total / time.Duration(runs)
