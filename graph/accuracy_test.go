@@ -28,7 +28,7 @@ func TestLouvainKarateClubNMI(t *testing.T) {
 }
 
 // TestLouvainFootballNMI verifies Louvain on the 115-node Football network:
-// Q > 0 and NMI >= 0.5 vs 12-conference ground truth. (TEST-02)
+// Q > 0 and NMI >= 0.95 vs 12-conference ground truth. (TEST-02)
 func TestLouvainFootballNMI(t *testing.T) {
 	g := buildGraph(testdata.FootballEdges)
 	det := NewLouvain(LouvainOptions{Seed: 42})
@@ -40,18 +40,18 @@ func TestLouvainFootballNMI(t *testing.T) {
 		t.Errorf("Q = %.4f, want > 0.0", res.Modularity)
 	}
 	score := nmi(res.Partition, groundTruthPartition(testdata.FootballPartition))
-	if score < 0.5 {
-		t.Errorf("NMI = %.4f, want >= 0.5", score)
+	if score < 0.95 {
+		t.Errorf("NMI = %.4f, want >= 0.95", score)
 	}
 	t.Logf("Football Louvain: Q=%.4f communities=%d NMI=%.4f",
 		res.Modularity, uniqueCommunities(res.Partition), score)
 }
 
 // TestLeidenFootballNMI verifies Leiden on the 115-node Football network:
-// Q > 0 and NMI >= 0.5 vs 12-conference ground truth. (TEST-02)
+// Q > 0 and NMI >= 0.95 vs 12-conference ground truth. (TEST-02)
 func TestLeidenFootballNMI(t *testing.T) {
 	g := buildGraph(testdata.FootballEdges)
-	det := NewLeiden(LeidenOptions{Seed: 2})
+	det := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -60,15 +60,15 @@ func TestLeidenFootballNMI(t *testing.T) {
 		t.Errorf("Q = %.4f, want > 0.0", res.Modularity)
 	}
 	score := nmi(res.Partition, groundTruthPartition(testdata.FootballPartition))
-	if score < 0.5 {
-		t.Errorf("NMI = %.4f, want >= 0.5", score)
+	if score < 0.95 {
+		t.Errorf("NMI = %.4f, want >= 0.95", score)
 	}
 	t.Logf("Football Leiden: Q=%.4f communities=%d NMI=%.4f",
 		res.Modularity, uniqueCommunities(res.Partition), score)
 }
 
 // TestLouvainPolbooksNMI verifies Louvain on the 105-node Polbooks network:
-// Q > 0 and NMI >= 0.5 vs 3-community ground truth. (TEST-03)
+// Q > 0 and NMI >= 0.95 vs 3-community ground truth. (TEST-03)
 func TestLouvainPolbooksNMI(t *testing.T) {
 	g := buildGraph(testdata.PolbooksEdges)
 	det := NewLouvain(LouvainOptions{Seed: 42})
@@ -80,18 +80,18 @@ func TestLouvainPolbooksNMI(t *testing.T) {
 		t.Errorf("Q = %.4f, want > 0.0", res.Modularity)
 	}
 	score := nmi(res.Partition, groundTruthPartition(testdata.PolbooksPartition))
-	if score < 0.5 {
-		t.Errorf("NMI = %.4f, want >= 0.5", score)
+	if score < 0.95 {
+		t.Errorf("NMI = %.4f, want >= 0.95", score)
 	}
 	t.Logf("Polbooks Louvain: Q=%.4f communities=%d NMI=%.4f",
 		res.Modularity, uniqueCommunities(res.Partition), score)
 }
 
 // TestLeidenPolbooksNMI verifies Leiden on the 105-node Polbooks network:
-// Q > 0 and NMI >= 0.5 vs 3-community ground truth. (TEST-03)
+// Q > 0 and NMI >= 0.95 vs 3-community ground truth. (TEST-03)
 func TestLeidenPolbooksNMI(t *testing.T) {
 	g := buildGraph(testdata.PolbooksEdges)
-	det := NewLeiden(LeidenOptions{Seed: 2})
+	det := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1})
 	res, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -100,8 +100,8 @@ func TestLeidenPolbooksNMI(t *testing.T) {
 		t.Errorf("Q = %.4f, want > 0.0", res.Modularity)
 	}
 	score := nmi(res.Partition, groundTruthPartition(testdata.PolbooksPartition))
-	if score < 0.5 {
-		t.Errorf("NMI = %.4f, want >= 0.5", score)
+	if score < 0.95 {
+		t.Errorf("NMI = %.4f, want >= 0.95", score)
 	}
 	t.Logf("Polbooks Leiden: Q=%.4f communities=%d NMI=%.4f",
 		res.Modularity, uniqueCommunities(res.Partition), score)
@@ -169,7 +169,7 @@ func TestLeidenWarmStartQuality(t *testing.T) {
 	for _, f := range fixtures {
 		t.Run(f.name, func(t *testing.T) {
 			g := buildGraph(f.edges)
-			det := NewLeiden(LeidenOptions{Seed: 2})
+			det := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1})
 
 			// Cold run on original
 			coldResult, err := det.Detect(g)
@@ -187,7 +187,7 @@ func TestLeidenWarmStartQuality(t *testing.T) {
 			}
 
 			// Warm run on perturbed
-			warmDet := NewLeiden(LeidenOptions{Seed: 2, InitialPartition: coldResult.Partition})
+			warmDet := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1, InitialPartition: coldResult.Partition})
 			warmResult, err := warmDet.Detect(perturbed)
 			if err != nil {
 				t.Fatalf("warm detect: %v", err)
@@ -237,13 +237,13 @@ func TestLouvainWarmStartFewerPasses(t *testing.T) {
 // fewer or equal passes vs cold-start on the same unperturbed graph. (D-09)
 func TestLeidenWarmStartFewerPasses(t *testing.T) {
 	g := buildGraph(testdata.KarateClubEdges)
-	det := NewLeiden(LeidenOptions{Seed: 2})
+	det := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1})
 	coldResult, err := det.Detect(g)
 	if err != nil {
 		t.Fatalf("cold detect: %v", err)
 	}
 
-	warmDet := NewLeiden(LeidenOptions{Seed: 2, InitialPartition: coldResult.Partition})
+	warmDet := NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1, InitialPartition: coldResult.Partition})
 	warmResult, err := warmDet.Detect(g)
 	if err != nil {
 		t.Fatalf("warm detect: %v", err)
@@ -274,7 +274,7 @@ func TestWarmStartEdgeCases(t *testing.T) {
 		case louvainAlgo:
 			return NewLouvain(LouvainOptions{Seed: 1, InitialPartition: ip}).Detect(g)
 		default:
-			return NewLeiden(LeidenOptions{Seed: 2, InitialPartition: ip}).Detect(g)
+			return NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1, InitialPartition: ip}).Detect(g)
 		}
 	}
 
@@ -284,7 +284,7 @@ func TestWarmStartEdgeCases(t *testing.T) {
 		case louvainAlgo:
 			return NewLouvain(LouvainOptions{Seed: 1}).Detect(g)
 		default:
-			return NewLeiden(LeidenOptions{Seed: 2}).Detect(g)
+			return NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1}).Detect(g)
 		}
 	}
 
@@ -404,9 +404,9 @@ func TestWarmStartIdempotent(t *testing.T) {
 		},
 		{
 			name:    "Leiden",
-			coldDet: NewLeiden(LeidenOptions{Seed: 2}),
+			coldDet: NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1}),
 			warmFn: func(ip map[NodeID]int) CommunityDetector {
-				return NewLeiden(LeidenOptions{Seed: 2, InitialPartition: ip})
+				return NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1, InitialPartition: ip})
 			},
 		},
 	} {
@@ -440,6 +440,31 @@ func TestWarmStartIdempotent(t *testing.T) {
 	}
 }
 
+// TestLeidenStabilityMultiRun verifies that Seed=0 + NumRuns=3 consistently produces
+// a high-modularity result on the Karate Club graph (Q >= 0.40).
+//
+// We assert Q rather than NMI here because multi-run best-Q selection on Karate Club
+// reliably picks the 4-community modularity-optimal solution (Q≈0.42), which has lower
+// NMI vs the 2-community human ground truth than the 3-community Seed=2 solution does.
+// NMI quality is already covered by TestLeidenKarateClubAccuracy (deterministic, Seed=2).
+func TestLeidenStabilityMultiRun(t *testing.T) {
+	g := buildKarateClubLeiden()
+	det := NewLeiden(LeidenOptions{Seed: 0, NumRuns: 3})
+	res, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Multi-run best-Q selection reliably picks Q >= 0.38 (single Seed=2 gives Q≈0.373).
+	// Threshold is set conservatively to avoid flakiness from timing-based seed variation.
+	if res.Modularity < 0.38 {
+		t.Errorf("Q = %.4f, want >= 0.38 (multi-run best-Q stability)", res.Modularity)
+	}
+	if uniqueCommunities(res.Partition) < 2 {
+		t.Errorf("communities = %d, want >= 2", uniqueCommunities(res.Partition))
+	}
+	t.Logf("MultiRun: Q=%.4f communities=%d", res.Modularity, uniqueCommunities(res.Partition))
+}
+
 // TestWarmStartPartialCoverage covers IG-1 for both Louvain and Leiden:
 // a partial InitialPartition (roughly half the nodes removed) forces the new-node
 // singleton branch in reset() (louvain_state.go / leiden_state.go lines 91-98).
@@ -461,9 +486,9 @@ func TestWarmStartPartialCoverage(t *testing.T) {
 		},
 		{
 			name:    "Leiden",
-			coldDet: NewLeiden(LeidenOptions{Seed: 2}),
+			coldDet: NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1}),
 			warmFn: func(ip map[NodeID]int) CommunityDetector {
-				return NewLeiden(LeidenOptions{Seed: 2, InitialPartition: ip})
+				return NewLeiden(LeidenOptions{Seed: 2, NumRuns: 1, InitialPartition: ip})
 			},
 		},
 	} {

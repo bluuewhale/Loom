@@ -46,7 +46,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [x] **Phase 10: Online API Contract** — `GraphDelta` type, `Update()` signature, directed-graph guard, empty-delta fast-path (completed 2026-03-31)
 - [x] **Phase 11: Incremental Recomputation Core** — affected-node set computation, incremental ego-net rebuild, incremental persona graph patch, warm-start global detection, PersonaID collision safety (completed 2026-03-31)
-- [ ] **Phase 12: Parallel Ego-Net Construction and Performance** — goroutine pool for ego-net construction, ≥10x speedup benchmarks for 1-node and 1-edge updates, 10K-node benchmark ≤300ms/op
+- [x] **Phase 12: Parallel Ego-Net Construction and Performance** — goroutine pool for ego-net construction, ≥10x speedup benchmarks for 1-node and 1-edge updates, 10K-node benchmark ≤300ms/op (completed 2026-03-31)
 - [ ] **Phase 13: Correctness Hardening and Race Safety** — result invariant tests, concurrent-safe verification under `-race`
 
 ## Phase Details

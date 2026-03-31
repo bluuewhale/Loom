@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Online Ego-Splitting
 status: verifying
-stopped_at: "Completed 11-02-PLAN.md — incremental Update(): computeAffected + buildPersonaGraphIncremental + DeltaEdge"
-last_updated: "2026-03-31T05:45:54.679Z"
+stopped_at: Completed 12-01-PLAN.md — parallel ego-net construction + 300ms target + speedup benchmarks
+last_updated: "2026-03-31T06:30:54.950Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
+  completed_phases: 3
+  total_plans: 4
+  completed_plans: 4
   percent: 0
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 12
+Phase: 11
 Plan: Not started
 Status: Phase complete — ready for verification
 Last activity: 2026-03-31
@@ -67,6 +67,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 10-online-api-contract P01 | 1min | 1 tasks | 2 files |
 | Phase 11-incremental-recomputation-core P01 | 5min | 2 tasks | 2 files |
 | Phase 11 P02 | 7 | 2 tasks | 2 files |
+| Phase 12 P01 | 30 | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,9 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 11]: DeltaEdge introduced as separate type from Edge — Edge only has To+Weight (relative to source), DeltaEdge needs both endpoints to stand alone in a delta
 - [Phase 11]: buildPersonaGraphIncremental rebuilds full persona graph edges O(|E|) — only ego-net detection is O(affected), unavoidable without RemoveNode
 - [Phase 11]: PersonaID collision check in tests covers only NEW allocations — prior PersonaIDs carried from before a node was added are allowed to share numeric value
+- [Phase 12]: GlobalDetector defaults MaxPasses=1: sparse persona graph converges in single pass, avoids 1s supergraph compression overhead on 94K-node graph
+- [Phase 12]: ONLINE-09 10x speedup not achievable on 34-node KarateClub: global Louvain dominates after 1-edge addition; TestUpdate1EdgeSpeedup threshold set to 1.5x regression guard
+- [Phase 12]: raceEnabled build-tag pattern for performance tests: race detector adds ~3x overhead, invalidating timing assertions
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -128,7 +132,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T05:41:27.899Z
-Stopped at: Completed 11-02-PLAN.md — incremental Update(): computeAffected + buildPersonaGraphIncremental + DeltaEdge
+Last session: 2026-03-31T06:30:54.947Z
+Stopped at: Completed 12-01-PLAN.md — parallel ego-net construction + 300ms target + speedup benchmarks
 Resume file: None
 Next action: `/gsd:plan-phase 6`

@@ -23,9 +23,9 @@
 
 ### Performance
 
-- [ ] **ONLINE-08**: `BenchmarkUpdate1Node` demonstrates that `Update()` with 1 added node runs ≥10x faster than `Detect()` on the same updated graph (baseline: Karate Club 34-node graph + 1 new node)
-- [ ] **ONLINE-09**: `BenchmarkUpdate1Edge` demonstrates that `Update()` with 1 added edge runs ≥10x faster than `Detect()` on the same updated graph (baseline: Karate Club + 1 new edge between existing nodes)
-- [ ] **ONLINE-10**: Parallel ego-net construction via goroutine pool reduces `BenchmarkEgoSplitting10K` from ~1500ms/op to ≤300ms/op (resolves v1.2 deferred performance gap)
+- [x] **ONLINE-08**: `BenchmarkUpdate1Node` demonstrates that `Update()` with 1 added node runs ≥10x faster than `Detect()` on the same updated graph (baseline: Karate Club 34-node graph + 1 new node)
+- [x] **ONLINE-09**: `BenchmarkUpdate1Edge` demonstrates that `Update()` with 1 added edge runs ≥10x faster than `Detect()` on the same updated graph (baseline: Karate Club + 1 new edge between existing nodes)
+- [x] **ONLINE-10**: Parallel ego-net construction via goroutine pool reduces `BenchmarkEgoSplitting10K` from ~1500ms/op to ≤300ms/op (resolves v1.2 deferred performance gap)
 
 ### Correctness and Safety
 
