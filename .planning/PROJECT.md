@@ -95,7 +95,8 @@ graph/
 
 ### Active — v1.3
 
-- [ ] Online/incremental update API: `EgoSplittingDetector.Update(delta)` — node/edge additions trigger partial re-detection
+- [x] Online API contract: `GraphDelta`, `OnlineOverlappingCommunityDetector`, `NewOnlineEgoSplitting`, `Update()` guard + empty-delta fast-path — validated in Phase 10
+- [ ] Online/incremental update API: `EgoSplittingDetector.Update(delta)` — node/edge additions trigger partial re-detection (Phase 11: incremental logic)
 - [ ] Incremental ego-net recomputation: only affected nodes' ego-nets recomputed
 - [ ] Warm-start global detection: reuse prior global partition as initial state
 - [ ] Convergence speed: 1~2 node/edge additions converge ≥10x faster than full re-detection
