@@ -117,12 +117,3 @@ Plans:
 | 12: Parallel Ego-Net Construction and Performance | v1.3 | 0/2 | Not started | - |
 | 13: Correctness Hardening and Race Safety | v1.3 | 0/1 | Not started | - |
 
-### Phase 14: Smart Planning Merge — semantic 3-way merge for ROADMAP.md, STATE.md, REQUIREMENTS.md on worktree conflict resolution
-
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 13
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (run /gsd:plan-phase 14 to break down)
