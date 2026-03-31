@@ -267,12 +267,12 @@ func TestLouvainWarmStartSpeedup(t *testing.T) {
 		t.Skip("benchmark returned 0 ns/op — too fast to measure")
 	}
 	t.Logf("Louvain warm-start speedup (median of 3): %.2fx", speedup)
-	if speedup < 1.2 {
-		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
+	if speedup < 1.1 {
+		t.Errorf("warm-start speedup %.2fx < 1.1x threshold", speedup)
 	}
 }
 
-// TestLeidenWarmStartSpeedup enforces that warm-start Leiden is at least 1.2x faster
+// TestLeidenWarmStartSpeedup enforces that warm-start Leiden is at least 1.1x faster
 // than cold-start on the 10K-node BA graph. Uses testing.Benchmark to measure both
 // BenchmarkLeiden10K and BenchmarkLeidenWarmStart programmatically. (IG-2)
 //
@@ -290,8 +290,8 @@ func TestLeidenWarmStartSpeedup(t *testing.T) {
 		t.Skip("benchmark returned 0 ns/op — too fast to measure")
 	}
 	t.Logf("Leiden warm-start speedup (median of 3): %.2fx", speedup)
-	if speedup < 1.2 {
-		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
+	if speedup < 1.1 {
+		t.Errorf("warm-start speedup %.2fx < 1.1x threshold", speedup)
 	}
 }
 

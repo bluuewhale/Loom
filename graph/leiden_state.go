@@ -13,6 +13,7 @@ type leidenState struct {
 	partition        map[NodeID]int     // node -> community ID (from local-move phase)
 	refinedPartition map[NodeID]int     // after BFS split; used for supergraph aggregation
 	commStr          map[int]float64    // community ID -> sum of node strengths (cached)
+	sortedNodes      []NodeID           // cached sorted node list; reused when node set unchanged
 	neighborBuf      map[NodeID]float64 // reusable buffer for neighbor weight accumulation
 	neighborDirty    []NodeID           // dirty-list: keys written to neighborBuf this iteration
 	candidateBuf     []int              // reusable buffer for candidate communities
@@ -51,6 +52,15 @@ func releaseLeidenState(st *leidenState) {
 // initialPartition nil = cold start (existing behavior); non-nil = warm start.
 // refinedPartition is always cleared; it is repopulated after BFS refinement.
 func (st *leidenState) reset(g *Graph, seed int64, initialPartition map[NodeID]int) {
+	// Save previous commStr before clearing — used by warm-start delta patch (Step 4).
+	var prevCommStr map[int]float64
+	if initialPartition != nil && len(st.commStr) > 0 {
+		prevCommStr = make(map[int]float64, len(st.commStr))
+		for k, v := range st.commStr {
+			prevCommStr[k] = v
+		}
+	}
+
 	// Clear existing map contents (reuse allocated map).
 	clear(st.partition)
 	clear(st.refinedPartition)
@@ -70,8 +80,18 @@ func (st *leidenState) reset(g *Graph, seed int64, initialPartition map[NodeID]i
 	st.rng = rand.New(src)
 
 	// Populate communities in ascending NodeID order for determinism.
-	nodes := g.Nodes()
-	slices.Sort(nodes)
+	// sortedNodes cache: reuse cached slice when node set is unchanged (O(1) vs O(N log N)).
+	nodeCount := g.NodeCount()
+	var nodes []NodeID
+	if len(st.sortedNodes) == nodeCount {
+		// Warm-start with unchanged node set — reuse cached sorted slice.
+		nodes = st.sortedNodes
+	} else {
+		// Node set changed (or cold first use) — fetch, sort, and cache.
+		nodes = g.Nodes()
+		slices.Sort(nodes)
+		st.sortedNodes = nodes
+	}
 
 	if initialPartition == nil {
 		// Cold start: trivial singleton assignment (existing behavior).
@@ -114,9 +134,49 @@ func (st *leidenState) reset(g *Graph, seed int64, initialPartition map[NodeID]i
 		st.partition[n] = remap[c]
 	}
 
-	// Step 4: build commStr from CURRENT graph strengths (not from prior run).
-	for _, n := range nodes {
-		st.commStr[st.partition[n]] += g.Strength(n)
+	// Step 4: commStr delta patch — O(|communities|) + O(|new_nodes|) instead of O(N).
+	//
+	// The delta patch is only valid when prevCommStr's key set exactly matches the set
+	// of community IDs in initialPartition. If they differ (e.g. pool state was reused
+	// by a different Detect call), fall back to the O(N) full rebuild.
+	//
+	// Compatibility check: collect unique community IDs from initialPartition and compare
+	// against prevCommStr key set.
+	deltaValid := false
+	if prevCommStr != nil {
+		initCommSet := make(map[int]struct{}, len(prevCommStr))
+		for _, c := range initialPartition {
+			initCommSet[c] = struct{}{}
+		}
+		if len(initCommSet) == len(prevCommStr) {
+			deltaValid = true
+			for c := range initCommSet {
+				if _, ok := prevCommStr[c]; !ok {
+					deltaValid = false
+					break
+				}
+			}
+		}
+	}
+
+	if deltaValid {
+		// 4a: Remap previous community strengths to new compact IDs.
+		for oldC, str := range prevCommStr {
+			if newC, ok := remap[oldC]; ok {
+				st.commStr[newC] = str
+			}
+		}
+		// 4b: Patch new nodes (not in initialPartition) — add their strength.
+		for _, n := range nodes {
+			if _, ok := initialPartition[n]; !ok {
+				st.commStr[st.partition[n]] += g.Strength(n)
+			}
+		}
+	} else {
+		// Fallback: full O(N) rebuild when prevCommStr doesn't match initialPartition.
+		for _, n := range nodes {
+			st.commStr[st.partition[n]] += g.Strength(n)
+		}
 	}
 }
 
