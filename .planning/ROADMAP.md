@@ -75,7 +75,7 @@ Plans:
   3. New personas are allocated from `maxExistingPersonaID + 1`, confirmed by asserting no overlap between original `NodeID` space and post-update persona IDs across all nodes in the result
 **Plans**: 2 plans
 Plans:
-- [ ] 11-01-PLAN.md — Carry-forward fields on OverlappingCommunityResult + warmStartedDetector helper
+- [x] 11-01-PLAN.md — Carry-forward fields on OverlappingCommunityResult + warmStartedDetector helper
 - [ ] 11-02-PLAN.md — Incremental Update() with computeAffected, buildPersonaGraphIncremental, warm-start global detection
 
 ### Phase 12: Parallel Ego-Net Construction and Performance
