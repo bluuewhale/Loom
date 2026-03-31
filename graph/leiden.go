@@ -84,6 +84,9 @@ func (d *leidenDetector) Detect(g *Graph) (CommunityResult, error) {
 	if bestQ == math.Inf(-1) {
 		return CommunityResult{}, lastErr
 	}
+	// At least one run succeeded — return its result. We intentionally discard lastErr
+	// because partial multi-run failures (some iterations succeed, others fail) should
+	// not prevent returning the best successful result.
 	return bestResult, nil
 }
 

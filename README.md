@@ -7,7 +7,7 @@ Built for [GraphRAG](https://arxiv.org/abs/2404.16130) pipelines — where you n
 ## Features
 
 - **Louvain** — greedy modularity optimization with multi-level supergraph compression (~48ms / 10K nodes)
-- **Leiden** — BFS-refined variant that guarantees connected communities (~57ms / 10K nodes)
+- **Leiden** — BFS-refined variant that guarantees connected communities (~56ms / 10K nodes)
 - Weighted and unweighted graphs, directed and undirected
 - Newman-Girvan modularity with configurable resolution parameter
 - `NodeRegistry` for string ↔ `NodeID` label mapping
@@ -147,7 +147,7 @@ Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs. Python: pytho
 | 1K nodes   | Louvain   | ~5.4ms    | ~65ms                   | ~12x    |
 | 1K nodes   | Leiden    | ~5.8ms    | N/A¹                    | —       |
 | 10K nodes  | Louvain   | ~50ms     | ~3,700ms                | ~75x    |
-| 10K nodes  | Leiden    | ~57ms     | N/A¹                    | —       |
+| 10K nodes  | Leiden    | ~56ms     | N/A¹                    | —       |
 
 ¹ python-louvain implements Louvain only. Install: `pip install networkx python-louvain`
 

@@ -71,7 +71,7 @@ func ExampleNewLeiden() {
 		return
 	}
 
-	fmt.Println("communities:", len(uniqueCommunities(result.Partition)))
+	fmt.Println("communities:", len(communitySet(result.Partition)))
 	fmt.Println("modularity > 0:", result.Modularity > 0)
 
 	// Output:
@@ -121,8 +121,8 @@ func ExampleNewRegistry() {
 	// alice label: alice true
 }
 
-// uniqueCommunities returns the number of distinct community IDs in a partition.
-func uniqueCommunities(partition map[graph.NodeID]int) map[int]struct{} {
+// communitySet returns the set of distinct community IDs in a partition.
+func communitySet(partition map[graph.NodeID]int) map[int]struct{} {
 	seen := make(map[int]struct{})
 	for _, c := range partition {
 		seen[c] = struct{}{}

@@ -42,8 +42,8 @@ def _generate_ba_graph(nx, n=1000, m=5, seed=42):
 def _benchmark_louvain(community_louvain, G, runs=5):
     """Return list of wall-clock seconds for community.best_partition on G."""
     # warmup
-    community_louvain.best_partition(G)
-    times = timeit.repeat(stmt=lambda: community_louvain.best_partition(G), number=1, repeat=runs)
+    community_louvain.best_partition(G, random_state=42)
+    times = timeit.repeat(stmt=lambda: community_louvain.best_partition(G, random_state=42), number=1, repeat=runs)
     return times
 
 
