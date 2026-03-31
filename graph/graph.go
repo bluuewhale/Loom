@@ -118,6 +118,40 @@ func (g *Graph) Strength(n NodeID) float64 {
 	return s
 }
 
+// RemoveEdgesFor removes all edges incident to any node in the nodeSet from the
+// graph. For undirected graphs, both directions are removed. totalWeight is
+// decremented for each removed edge. Nodes themselves are not removed.
+// This is used by buildPersonaGraphIncremental to surgically update the cloned
+// prior persona graph when only a small set of personas change.
+func (g *Graph) RemoveEdgesFor(nodeSet map[NodeID]struct{}) {
+	// Collect the weight that will be removed to keep totalWeight accurate.
+	// For undirected: each edge (u,v) is stored in both adjacency[u] and
+	// adjacency[v]. We credit the weight once when we remove from u's list
+	// (the canonical source), and then just filter v's list silently.
+	removedWeight := 0.0
+
+	for u := range nodeSet {
+		for _, e := range g.adjacency[u] {
+			// For undirected, credit weight once per distinct edge removed from u.
+			removedWeight += e.Weight
+			// Remove the reverse edge at e.To if not also in nodeSet
+			// (if both endpoints are in nodeSet, we'll clear e.To's list anyway).
+			if _, toAlso := nodeSet[e.To]; !toAlso && !g.directed && u != e.To {
+				filtered := g.adjacency[e.To][:0]
+				for _, re := range g.adjacency[e.To] {
+					if re.To != u {
+						filtered = append(filtered, re)
+					}
+				}
+				g.adjacency[e.To] = filtered
+			}
+		}
+		g.adjacency[u] = g.adjacency[u][:0]
+	}
+
+	g.totalWeight -= removedWeight
+}
+
 // IsDirected returns true if the graph is directed.
 func (g *Graph) IsDirected() bool {
 	return g.directed

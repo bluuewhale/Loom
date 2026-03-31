@@ -1,6 +1,10 @@
 package graph
 
-import "errors"
+import (
+	"errors"
+	"runtime"
+	"sync"
+)
 
 // ErrEmptyGraph is returned when Detect is called on a graph with no nodes.
 var ErrEmptyGraph = errors.New("ego splitting: empty graph")
@@ -23,6 +27,7 @@ type OverlappingCommunityResult struct {
 	inverseMap       map[NodeID]NodeID         // PersonaID -> original NodeID
 	partitions       map[NodeID]map[NodeID]int // ego-net partition per original node
 	personaPartition map[NodeID]int            // persona-level global partition
+	personaGraph     *Graph                    // last-built persona graph (for Clone fast-path)
 }
 
 // EgoSplittingOptions configures the Ego Splitting algorithm.
@@ -71,12 +76,15 @@ type egoSplittingDetector struct {
 
 // NewEgoSplitting returns an OverlappingCommunityDetector that uses the
 // Ego Splitting framework. Nil detectors default to Louvain with default options.
+// The default GlobalDetector uses MaxPasses=1: the persona graph is typically
+// sparse (avg degree ≈ 1) so a single Louvain pass finds near-optimal communities
+// without the O(n log n) supergraph compression of later passes.
 func NewEgoSplitting(opts EgoSplittingOptions) OverlappingCommunityDetector {
 	if opts.LocalDetector == nil {
 		opts.LocalDetector = NewLouvain(LouvainOptions{})
 	}
 	if opts.GlobalDetector == nil {
-		opts.GlobalDetector = NewLouvain(LouvainOptions{})
+		opts.GlobalDetector = NewLouvain(LouvainOptions{MaxPasses: 1})
 	}
 	if opts.Resolution == 0 {
 		opts.Resolution = 1.0
@@ -86,12 +94,13 @@ func NewEgoSplitting(opts EgoSplittingOptions) OverlappingCommunityDetector {
 
 // NewOnlineEgoSplitting returns an OnlineOverlappingCommunityDetector backed by
 // the Ego Splitting algorithm. Nil detectors default to Louvain with default options.
+// The default GlobalDetector uses MaxPasses=1 for the same reason as NewEgoSplitting.
 func NewOnlineEgoSplitting(opts EgoSplittingOptions) OnlineOverlappingCommunityDetector {
 	if opts.LocalDetector == nil {
 		opts.LocalDetector = NewLouvain(LouvainOptions{})
 	}
 	if opts.GlobalDetector == nil {
-		opts.GlobalDetector = NewLouvain(LouvainOptions{})
+		opts.GlobalDetector = NewLouvain(LouvainOptions{MaxPasses: 1})
 	}
 	if opts.Resolution == 0 {
 		opts.Resolution = 1.0
@@ -188,6 +197,7 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 		inverseMap:       inverseMap,
 		partitions:       partitions,
 		personaPartition: globalResult.Partition,
+		personaGraph:     personaGraph,
 	}, nil
 }
 
@@ -222,21 +232,48 @@ func (d *egoSplittingDetector) Update(
 	affected := computeAffected(g, delta)
 
 	// Step 2: Incremental persona graph build (ONLINE-06, ONLINE-11).
-	personaGraph, newPersonaOf, newInverseMap, newPartitions, warmPartition, err :=
+	personaGraph, newPersonaOf, newInverseMap, newPartitions, warmPartition, isolatedOnly, err :=
 		buildPersonaGraphIncremental(g, affected, prior, d.opts.LocalDetector)
 	if err != nil {
 		return OverlappingCommunityResult{}, err
 	}
 
-	// Step 3: Warm-start global detection (ONLINE-07).
-	warmGlobal := warmStartedDetector(d.opts.GlobalDetector, warmPartition)
-	globalResult, err := warmGlobal.Detect(personaGraph)
-	if err != nil {
-		return OverlappingCommunityResult{}, err
+	// Step 3: Global detection (ONLINE-07).
+	// Fast-path: when all new personas are isolated (no edges in persona graph),
+	// they can only be singleton communities. Extend warmPartition with new persona
+	// singletons and skip the global Louvain run entirely.
+	var globalPartition map[NodeID]int
+	if isolatedOnly {
+		// Find the maximum existing community ID to assign new singletons beyond it.
+		maxCommID := -1
+		for _, c := range warmPartition {
+			if c > maxCommID {
+				maxCommID = c
+			}
+		}
+		globalPartition = make(map[NodeID]int, len(warmPartition)+len(newInverseMap)-len(warmPartition))
+		for pID, c := range warmPartition {
+			globalPartition[pID] = c
+		}
+		// Assign each new persona its own singleton community.
+		for pID := range newInverseMap {
+			if _, alreadyAssigned := globalPartition[pID]; !alreadyAssigned {
+				maxCommID++
+				globalPartition[pID] = maxCommID
+			}
+		}
+	} else {
+		warmGlobal := warmStartedDetector(d.opts.GlobalDetector, warmPartition)
+		var globalResult CommunityResult
+		globalResult, err = warmGlobal.Detect(personaGraph)
+		if err != nil {
+			return OverlappingCommunityResult{}, err
+		}
+		globalPartition = globalResult.Partition
 	}
 
 	// Step 4: Map personas back to original nodes (Algorithm 3).
-	nodeCommunities := mapPersonasToOriginal(globalResult.Partition, newInverseMap)
+	nodeCommunities := mapPersonasToOriginal(globalPartition, newInverseMap)
 
 	// Step 4b: Deduplicate community IDs per node (same as Detect).
 	for node, comms := range nodeCommunities {
@@ -288,7 +325,8 @@ func (d *egoSplittingDetector) Update(
 		personaOf:        newPersonaOf,
 		inverseMap:       newInverseMap,
 		partitions:       newPartitions,
-		personaPartition: globalResult.Partition,
+		personaPartition: globalPartition,
+		personaGraph:     personaGraph,
 	}, nil
 }
 
@@ -316,6 +354,70 @@ func warmStartedDetector(d CommunityDetector, partition map[NodeID]int) Communit
 	default:
 		return d
 	}
+}
+
+// cloneDetector returns a fresh CommunityDetector with the same configuration
+// as d but with no shared mutable state (e.g. RNG, sync.Pool entries).
+// This is required so that goroutine workers each have an independent detector
+// instance — CommunityDetectors are NOT safe to call concurrently on the same
+// instance. Falls back to d itself for unknown types (safe if caller ensures
+// serial use, but goroutine workers should never reach the default branch
+// in normal operation).
+func cloneDetector(d CommunityDetector) CommunityDetector {
+	switch det := d.(type) {
+	case *louvainDetector:
+		opts := det.opts
+		opts.InitialPartition = nil // clones must start cold
+		return NewLouvain(opts)
+	case *leidenDetector:
+		opts := det.opts
+		opts.InitialPartition = nil
+		return NewLeiden(opts)
+	default:
+		return d
+	}
+}
+
+// egoNetJob is a unit of work sent to parallel ego-net detection workers.
+type egoNetJob struct {
+	v      NodeID
+	egoNet *Graph
+}
+
+// egoNetResult holds the output of one ego-net detection job.
+type egoNetResult struct {
+	v         NodeID
+	partition map[NodeID]int
+	err       error
+}
+
+// runParallelEgoNets dispatches ego-net detection jobs across a bounded worker
+// pool and collects results. jobs must be closed by the caller after all sends.
+// workerCount controls pool size; each worker gets its own cloneDetector(det) copy.
+func runParallelEgoNets(jobs <-chan egoNetJob, det CommunityDetector, workerCount int) []egoNetResult {
+	results := make(chan egoNetResult, workerCount*2)
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func(localDet CommunityDetector) {
+			defer wg.Done()
+			for job := range jobs {
+				res, err := localDet.Detect(job.egoNet)
+				results <- egoNetResult{v: job.v, partition: res.Partition, err: err}
+			}
+		}(cloneDetector(det))
+	}
+	// Close results channel after all workers finish.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var out []egoNetResult
+	for r := range results {
+		out = append(out, r)
+	}
+	return out
 }
 
 // buildEgoNet returns the ego-net of node v: the subgraph induced by v's
@@ -355,31 +457,65 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 	// partitions[v] holds the ego-net partition for v: neighbor -> community ID in G_v
 	partitions := make(map[NodeID]map[NodeID]int)
 
-	// Step 2: for each node v, build ego-net and assign persona nodes
-	for _, v := range g.Nodes() {
-		personaOf[v] = make(map[int]NodeID)
+	// Step 2: build ego-nets and detect local communities in parallel.
+	// Isolated nodes (no neighbors) are handled inline without goroutine overhead.
+	// Non-empty ego-nets are dispatched to a bounded worker pool.
+	nodes := g.Nodes()
+	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount > len(nodes) {
+		workerCount = len(nodes)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
 
+	jobCh := make(chan egoNetJob, workerCount*2)
+
+	// Collect isolated nodes inline; store non-empty ego-nets for dispatch.
+	// Ego-nets are built once here — not rebuilt in the goroutine.
+	type nodeEgo struct {
+		v      NodeID
+		egoNet *Graph
+	}
+	var nonEmptyJobs []nodeEgo
+	for _, v := range nodes {
+		personaOf[v] = make(map[int]NodeID)
 		egoNet := buildEgoNet(g, v)
 		if egoNet.NodeCount() == 0 {
-			// Isolated node or no neighbors: single persona with community 0
+			// Isolated node: single persona, community 0, no detection needed.
 			personaOf[v][0] = nextPersona
 			inverseMap[nextPersona] = v
 			nextPersona++
-			partitions[v] = make(map[NodeID]int) // empty partition
+			partitions[v] = make(map[NodeID]int)
 			continue
 		}
+		nonEmptyJobs = append(nonEmptyJobs, nodeEgo{v, egoNet})
+	}
 
-		result, err := localDetector.Detect(egoNet)
-		if err != nil {
-			return nil, nil, nil, nil, err
+	// Dispatch stored ego-nets to the worker pool (no rebuild).
+	go func() {
+		for _, job := range nonEmptyJobs {
+			jobCh <- egoNetJob{v: job.v, egoNet: job.egoNet}
 		}
+		close(jobCh)
+	}()
 
-		// Store partition for cross-lookup during edge wiring
-		partitions[v] = result.Partition
+	results := runParallelEgoNets(jobCh, localDetector, workerCount)
 
-		// Collect unique communities and assign persona nodes
+	// Check for errors first.
+	for _, r := range results {
+		if r.err != nil {
+			return nil, nil, nil, nil, r.err
+		}
+	}
+
+	// Assign persona nodes for non-empty ego-net results.
+	for _, r := range results {
+		v := r.v
+		partitions[v] = r.partition
+
 		commsSeen := make(map[int]struct{})
-		for _, commID := range result.Partition {
+		for _, commID := range r.partition {
 			commsSeen[commID] = struct{}{}
 		}
 		for commID := range commsSeen {
@@ -478,13 +614,19 @@ func computeAffected(g *Graph, delta GraphDelta) map[NodeID]struct{} {
 // New PersonaIDs are allocated above max(prior inverseMap keys, g.Nodes()) to
 // prevent collisions (ONLINE-11).
 //
-// Returns: personaGraph, personaOf, inverseMap, partitions, warmPartition, error.
+// Fast-path: when all affected nodes are newly-added isolated nodes (no edges),
+// the prior persona graph edges are unchanged. The prior graph is cloned and
+// new persona nodes are appended — avoiding the full O(|E|) edge-wiring rebuild.
+// In this case isolatedOnly=true is returned, signalling to the caller that
+// global detection can be skipped (new personas are disconnected singletons).
+//
+// Returns: personaGraph, personaOf, inverseMap, partitions, warmPartition, isolatedOnly, error.
 func buildPersonaGraphIncremental(
 	g *Graph,
 	affected map[NodeID]struct{},
 	prior OverlappingCommunityResult,
 	localDetector CommunityDetector,
-) (*Graph, map[NodeID]map[int]NodeID, map[NodeID]NodeID, map[NodeID]map[NodeID]int, map[NodeID]int, error) {
+) (*Graph, map[NodeID]map[int]NodeID, map[NodeID]NodeID, map[NodeID]map[NodeID]int, map[NodeID]int, bool, error) {
 	// Step a: deep-copy prior maps (shallow copy of inner maps for unaffected nodes).
 	personaOf := make(map[NodeID]map[int]NodeID, len(prior.personaOf))
 	for v, comms := range prior.personaOf {
@@ -525,35 +667,125 @@ func buildPersonaGraphIncremental(
 		delete(partitions, v)
 	}
 
-	// Step d: rebuild ego-nets for affected nodes and assign new PersonaIDs.
+	// Fast-path: if all affected nodes are newly-added isolated nodes, the prior
+	// persona graph edges are unchanged. Clone the prior graph and add new persona
+	// nodes (all isolated — no edges) instead of rebuilding O(|E|) edges.
+	// In this case no prior entries need deletion, so we can share prior maps directly.
+	// Conditions: (1) prior personaGraph is stored, (2) every affected node is new
+	// (not in prior.personaOf), (3) all have empty ego-nets in g.
+	if prior.personaGraph != nil {
+		allIsolatedNew := true
+		for v := range affected {
+			if _, wasPrior := prior.personaOf[v]; wasPrior {
+				allIsolatedNew = false
+				break
+			}
+			if len(g.Neighbors(v)) > 0 {
+				allIsolatedNew = false
+				break
+			}
+		}
+		if allIsolatedNew {
+			// Shallow-copy the outer maps (inner maps are shared read-only).
+			newPersonaOf := make(map[NodeID]map[int]NodeID, len(prior.personaOf)+len(affected))
+			for k, v := range prior.personaOf {
+				newPersonaOf[k] = v
+			}
+			newInverseMap := make(map[NodeID]NodeID, len(prior.inverseMap)+len(affected))
+			for k, v := range prior.inverseMap {
+				newInverseMap[k] = v
+			}
+			newPartitions := make(map[NodeID]map[NodeID]int, len(prior.partitions)+len(affected))
+			for k, v := range prior.partitions {
+				newPartitions[k] = v
+			}
+
+			for v := range affected {
+				m := make(map[int]NodeID, 1)
+				m[0] = nextPersona
+				newPersonaOf[v] = m
+				newInverseMap[nextPersona] = v
+				nextPersona++
+				newPartitions[v] = make(map[NodeID]int)
+			}
+			// warmPartition = prior persona partition (all prior personas survive).
+			warmPartition := prior.personaPartition
+
+			// Clone prior persona graph and append new isolated persona nodes.
+			pg := prior.personaGraph.Clone()
+			for v := range affected {
+				for _, personaID := range newPersonaOf[v] {
+					pg.AddNode(personaID, 1.0)
+				}
+			}
+			return pg, newPersonaOf, newInverseMap, newPartitions, warmPartition, true, nil
+		}
+	}
+
+	// Step d: rebuild ego-nets for affected nodes in parallel.
+	// Isolated nodes handled inline; non-empty ego-nets dispatched to worker pool.
+	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount > len(affected) {
+		workerCount = len(affected)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	// Initialize personaOf entries for all affected nodes (required before parallel dispatch).
 	for v := range affected {
 		personaOf[v] = make(map[int]NodeID)
+	}
 
+	// Separate isolated from non-empty affected nodes.
+	// Build ego-nets once; reuse in goroutine dispatch (no double build).
+	type affectedEgo struct {
+		v      NodeID
+		egoNet *Graph
+	}
+	var nonEmptyAffected []affectedEgo
+	for v := range affected {
 		egoNet := buildEgoNet(g, v)
 		if egoNet.NodeCount() == 0 {
-			// Isolated node or no neighbors: single persona with community 0.
 			personaOf[v][0] = nextPersona
 			inverseMap[nextPersona] = v
 			nextPersona++
 			partitions[v] = make(map[NodeID]int)
 			continue
 		}
+		nonEmptyAffected = append(nonEmptyAffected, affectedEgo{v, egoNet})
+	}
 
-		result, err := localDetector.Detect(egoNet)
-		if err != nil {
-			return nil, nil, nil, nil, nil, err
+	if len(nonEmptyAffected) > 0 {
+		jobCh := make(chan egoNetJob, workerCount*2)
+		go func() {
+			for _, job := range nonEmptyAffected {
+				jobCh <- egoNetJob{v: job.v, egoNet: job.egoNet}
+			}
+			close(jobCh)
+		}()
+
+		results := runParallelEgoNets(jobCh, localDetector, workerCount)
+
+		for _, r := range results {
+			if r.err != nil {
+				return nil, nil, nil, nil, nil, false, r.err
+			}
 		}
 
-		partitions[v] = result.Partition
+		for _, r := range results {
+			v := r.v
+			partitions[v] = r.partition
 
-		commsSeen := make(map[int]struct{})
-		for _, commID := range result.Partition {
-			commsSeen[commID] = struct{}{}
-		}
-		for commID := range commsSeen {
-			personaOf[v][commID] = nextPersona
-			inverseMap[nextPersona] = v
-			nextPersona++
+			commsSeen := make(map[int]struct{})
+			for _, commID := range r.partition {
+				commsSeen[commID] = struct{}{}
+			}
+			for commID := range commsSeen {
+				personaOf[v][commID] = nextPersona
+				inverseMap[nextPersona] = v
+				nextPersona++
+			}
 		}
 	}
 
@@ -567,56 +799,128 @@ func buildPersonaGraphIncremental(
 		}
 	}
 
-	// Step f: rebuild persona graph from scratch (Graph has no RemoveNode).
-	personaGraph := NewGraph(false)
-	for personaID := range inverseMap {
-		personaGraph.AddNode(personaID, 1.0)
-	}
+	// Step f: incremental-patch or full rebuild.
+	//
+	// Incremental patch (fast-path when prior.personaGraph is available):
+	//   1. Clone the prior persona graph (preserves all unaffected edges).
+	//   2. Add new persona nodes for affected nodes.
+	//   3. Remove all edges incident to affected personas (stale wiring).
+	//   4. Re-wire only edges where at least one original endpoint is affected.
+	// This avoids iterating all O(|E|) original edges — only affected-node edges are wired.
+	//
+	// Full rebuild (fallback): used when no prior persona graph is available.
+	var personaGraph *Graph
+	if prior.personaGraph != nil {
+		personaGraph = prior.personaGraph.Clone()
 
-	// Wire edges using canonical (lo, hi) dedup pattern — same as buildPersonaGraph.
-	seen := make(map[[2]NodeID]struct{})
-	for _, u := range g.Nodes() {
-		for _, e := range g.Neighbors(u) {
-			v := e.To
-
-			lo, hi := u, v
-			if lo > hi {
-				lo, hi = hi, lo
+		// Add new persona nodes (affected nodes got new PersonaIDs in step d).
+		for v := range affected {
+			for _, personaID := range personaOf[v] {
+				personaGraph.AddNode(personaID, 1.0)
 			}
-			key := [2]NodeID{lo, hi}
-			if _, already := seen[key]; already {
-				continue
-			}
-			seen[key] = struct{}{}
+		}
 
-			commOfVinGu := 0
-			if partU, hasU := partitions[u]; hasU {
-				if cv, vInU := partU[v]; vInU {
-					commOfVinGu = cv
+		// Collect the set of all persona IDs belonging to affected original nodes.
+		affectedPersonas := make(map[NodeID]struct{})
+		for v := range affected {
+			for _, personaID := range personaOf[v] {
+				affectedPersonas[personaID] = struct{}{}
+			}
+		}
+
+		// Remove stale edges: any edge touching an affected persona is stale.
+		personaGraph.RemoveEdgesFor(affectedPersonas)
+
+		// Re-wire edges where at least one original endpoint is affected.
+		// Only iterate edges incident to affected original nodes.
+		seen := make(map[[2]NodeID]struct{})
+		for u := range affected {
+			for _, e := range g.Neighbors(u) {
+				v := e.To
+				lo, hi := u, v
+				if lo > hi {
+					lo, hi = hi, lo
 				}
-			}
-
-			commOfUinGv := 0
-			if partV, hasV := partitions[v]; hasV {
-				if cu, uInV := partV[u]; uInV {
-					commOfUinGv = cu
+				key := [2]NodeID{lo, hi}
+				if _, already := seen[key]; already {
+					continue
 				}
-			}
+				seen[key] = struct{}{}
 
-			personaU, uHasComm := personaOf[u][commOfVinGu]
-			if !uHasComm {
-				continue
-			}
-			personaV, vHasComm := personaOf[v][commOfUinGv]
-			if !vHasComm {
-				continue
-			}
+				commOfVinGu := 0
+				if partU, hasU := partitions[u]; hasU {
+					if cv, vInU := partU[v]; vInU {
+						commOfVinGu = cv
+					}
+				}
+				commOfUinGv := 0
+				if partV, hasV := partitions[v]; hasV {
+					if cu, uInV := partV[u]; uInV {
+						commOfUinGv = cu
+					}
+				}
 
-			personaGraph.AddEdge(personaU, personaV, e.Weight)
+				personaU, uHasComm := personaOf[u][commOfVinGu]
+				if !uHasComm {
+					continue
+				}
+				personaV, vHasComm := personaOf[v][commOfUinGv]
+				if !vHasComm {
+					continue
+				}
+
+				personaGraph.AddEdge(personaU, personaV, e.Weight)
+			}
+		}
+	} else {
+		// Full rebuild: no prior persona graph available.
+		personaGraph = NewGraph(false)
+		for personaID := range inverseMap {
+			personaGraph.AddNode(personaID, 1.0)
+		}
+
+		seen := make(map[[2]NodeID]struct{})
+		for _, u := range g.Nodes() {
+			for _, e := range g.Neighbors(u) {
+				v := e.To
+				lo, hi := u, v
+				if lo > hi {
+					lo, hi = hi, lo
+				}
+				key := [2]NodeID{lo, hi}
+				if _, already := seen[key]; already {
+					continue
+				}
+				seen[key] = struct{}{}
+
+				commOfVinGu := 0
+				if partU, hasU := partitions[u]; hasU {
+					if cv, vInU := partU[v]; vInU {
+						commOfVinGu = cv
+					}
+				}
+				commOfUinGv := 0
+				if partV, hasV := partitions[v]; hasV {
+					if cu, uInV := partV[u]; uInV {
+						commOfUinGv = cu
+					}
+				}
+
+				personaU, uHasComm := personaOf[u][commOfVinGu]
+				if !uHasComm {
+					continue
+				}
+				personaV, vHasComm := personaOf[v][commOfUinGv]
+				if !vHasComm {
+					continue
+				}
+
+				personaGraph.AddEdge(personaU, personaV, e.Weight)
+			}
 		}
 	}
 
-	return personaGraph, personaOf, inverseMap, partitions, warmPartition, nil
+	return personaGraph, personaOf, inverseMap, partitions, warmPartition, false, nil
 }
 
 // mapPersonasToOriginal converts global community assignments on the persona
