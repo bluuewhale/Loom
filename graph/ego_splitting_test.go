@@ -1163,14 +1163,30 @@ func TestBuildPersonaGraphIncremental_PersonaIDAboveMax(t *testing.T) {
 // --- Update() incremental tests: ONLINE-05, ONLINE-06, ONLINE-07, ONLINE-11 / Phase 11-02 ---
 
 // countingDetector is a test spy that wraps a CommunityDetector and counts Detect calls.
+// It is safe for concurrent use: the count field is protected by mu.
 type countingDetector struct {
+	mu    sync.Mutex
 	inner CommunityDetector
 	count int
 }
 
 func (c *countingDetector) Detect(g *Graph) (CommunityResult, error) {
+	c.mu.Lock()
 	c.count++
+	c.mu.Unlock()
 	return c.inner.Detect(g)
+}
+
+func (c *countingDetector) getCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.count
+}
+
+func (c *countingDetector) resetCount() {
+	c.mu.Lock()
+	c.count = 0
+	c.mu.Unlock()
 }
 
 // TestUpdate_AffectedNodesOnly verifies that Update only recomputes ego-nets for
@@ -1189,7 +1205,7 @@ func TestUpdate_AffectedNodesOnly(t *testing.T) {
 	}
 
 	// Reset counter after initial Detect.
-	spy.count = 0
+	spy.resetCount()
 
 	// Add node 34 with one edge to node 0.
 	g.AddNode(34, 1.0)
@@ -1206,12 +1222,13 @@ func TestUpdate_AffectedNodesOnly(t *testing.T) {
 
 	// Compute expected affected set size.
 	affected := computeAffected(g, delta)
-	if spy.count != len(affected) {
+	gotCount := spy.getCount()
+	if gotCount != len(affected) {
 		t.Errorf("LocalDetector.Detect called %d times, want %d (len(affected))",
-			spy.count, len(affected))
+			gotCount, len(affected))
 	}
 	// Sanity: must be less than all nodes (35) — proves incremental behavior.
-	if spy.count >= g.NodeCount() {
+	if gotCount >= g.NodeCount() {
 		t.Errorf("LocalDetector.Detect called for all %d nodes — not incremental", g.NodeCount())
 	}
 }

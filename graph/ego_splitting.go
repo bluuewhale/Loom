@@ -1,6 +1,10 @@
 package graph
 
-import "errors"
+import (
+	"errors"
+	"runtime"
+	"sync"
+)
 
 // ErrEmptyGraph is returned when Detect is called on a graph with no nodes.
 var ErrEmptyGraph = errors.New("ego splitting: empty graph")
@@ -318,6 +322,70 @@ func warmStartedDetector(d CommunityDetector, partition map[NodeID]int) Communit
 	}
 }
 
+// cloneDetector returns a fresh CommunityDetector with the same configuration
+// as d but with no shared mutable state (e.g. RNG, sync.Pool entries).
+// This is required so that goroutine workers each have an independent detector
+// instance — CommunityDetectors are NOT safe to call concurrently on the same
+// instance. Falls back to d itself for unknown types (safe if caller ensures
+// serial use, but goroutine workers should never reach the default branch
+// in normal operation).
+func cloneDetector(d CommunityDetector) CommunityDetector {
+	switch det := d.(type) {
+	case *louvainDetector:
+		opts := det.opts
+		opts.InitialPartition = nil // clones must start cold
+		return NewLouvain(opts)
+	case *leidenDetector:
+		opts := det.opts
+		opts.InitialPartition = nil
+		return NewLeiden(opts)
+	default:
+		return d
+	}
+}
+
+// egoNetJob is a unit of work sent to parallel ego-net detection workers.
+type egoNetJob struct {
+	v      NodeID
+	egoNet *Graph
+}
+
+// egoNetResult holds the output of one ego-net detection job.
+type egoNetResult struct {
+	v         NodeID
+	partition map[NodeID]int
+	err       error
+}
+
+// runParallelEgoNets dispatches ego-net detection jobs across a bounded worker
+// pool and collects results. jobs must be closed by the caller after all sends.
+// workerCount controls pool size; each worker gets its own cloneDetector(det) copy.
+func runParallelEgoNets(jobs <-chan egoNetJob, det CommunityDetector, workerCount int) []egoNetResult {
+	results := make(chan egoNetResult, workerCount*2)
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func(localDet CommunityDetector) {
+			defer wg.Done()
+			for job := range jobs {
+				res, err := localDet.Detect(job.egoNet)
+				results <- egoNetResult{v: job.v, partition: res.Partition, err: err}
+			}
+		}(cloneDetector(det))
+	}
+	// Close results channel after all workers finish.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var out []egoNetResult
+	for r := range results {
+		out = append(out, r)
+	}
+	return out
+}
+
 // buildEgoNet returns the ego-net of node v: the subgraph induced by v's
 // neighbors, excluding v itself. This implements Algorithm 1 of the Ego
 // Splitting framework.
@@ -355,31 +423,61 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 	// partitions[v] holds the ego-net partition for v: neighbor -> community ID in G_v
 	partitions := make(map[NodeID]map[NodeID]int)
 
-	// Step 2: for each node v, build ego-net and assign persona nodes
-	for _, v := range g.Nodes() {
-		personaOf[v] = make(map[int]NodeID)
+	// Step 2: build ego-nets and detect local communities in parallel.
+	// Isolated nodes (no neighbors) are handled inline without goroutine overhead.
+	// Non-empty ego-nets are dispatched to a bounded worker pool.
+	nodes := g.Nodes()
+	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount > len(nodes) {
+		workerCount = len(nodes)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
 
+	jobCh := make(chan egoNetJob, workerCount*2)
+
+	// Collect isolated nodes inline; send non-empty ego-nets to workers.
+	var nonEmptyNodes []NodeID
+	for _, v := range nodes {
+		personaOf[v] = make(map[int]NodeID)
 		egoNet := buildEgoNet(g, v)
 		if egoNet.NodeCount() == 0 {
-			// Isolated node or no neighbors: single persona with community 0
+			// Isolated node: single persona, community 0, no detection needed.
 			personaOf[v][0] = nextPersona
 			inverseMap[nextPersona] = v
 			nextPersona++
-			partitions[v] = make(map[NodeID]int) // empty partition
+			partitions[v] = make(map[NodeID]int)
 			continue
 		}
+		nonEmptyNodes = append(nonEmptyNodes, v)
+		_ = egoNet // collected below
+	}
 
-		result, err := localDetector.Detect(egoNet)
-		if err != nil {
-			return nil, nil, nil, nil, err
+	// Re-send only non-empty ego-nets as jobs.
+	go func() {
+		for _, v := range nonEmptyNodes {
+			jobCh <- egoNetJob{v: v, egoNet: buildEgoNet(g, v)}
 		}
+		close(jobCh)
+	}()
 
-		// Store partition for cross-lookup during edge wiring
-		partitions[v] = result.Partition
+	results := runParallelEgoNets(jobCh, localDetector, workerCount)
 
-		// Collect unique communities and assign persona nodes
+	// Check for errors first.
+	for _, r := range results {
+		if r.err != nil {
+			return nil, nil, nil, nil, r.err
+		}
+	}
+
+	// Assign persona nodes for non-empty ego-net results.
+	for _, r := range results {
+		v := r.v
+		partitions[v] = r.partition
+
 		commsSeen := make(map[int]struct{})
-		for _, commID := range result.Partition {
+		for _, commID := range r.partition {
 			commsSeen[commID] = struct{}{}
 		}
 		for commID := range commsSeen {
@@ -525,35 +623,65 @@ func buildPersonaGraphIncremental(
 		delete(partitions, v)
 	}
 
-	// Step d: rebuild ego-nets for affected nodes and assign new PersonaIDs.
+	// Step d: rebuild ego-nets for affected nodes in parallel.
+	// Isolated nodes handled inline; non-empty ego-nets dispatched to worker pool.
+	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount > len(affected) {
+		workerCount = len(affected)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	// Initialize personaOf entries for all affected nodes (required before parallel dispatch).
 	for v := range affected {
 		personaOf[v] = make(map[int]NodeID)
+	}
 
+	// Separate isolated from non-empty affected nodes.
+	var nonEmptyAffected []NodeID
+	for v := range affected {
 		egoNet := buildEgoNet(g, v)
 		if egoNet.NodeCount() == 0 {
-			// Isolated node or no neighbors: single persona with community 0.
 			personaOf[v][0] = nextPersona
 			inverseMap[nextPersona] = v
 			nextPersona++
 			partitions[v] = make(map[NodeID]int)
 			continue
 		}
+		nonEmptyAffected = append(nonEmptyAffected, v)
+	}
 
-		result, err := localDetector.Detect(egoNet)
-		if err != nil {
-			return nil, nil, nil, nil, nil, err
+	if len(nonEmptyAffected) > 0 {
+		jobCh := make(chan egoNetJob, workerCount*2)
+		go func() {
+			for _, v := range nonEmptyAffected {
+				jobCh <- egoNetJob{v: v, egoNet: buildEgoNet(g, v)}
+			}
+			close(jobCh)
+		}()
+
+		results := runParallelEgoNets(jobCh, localDetector, workerCount)
+
+		for _, r := range results {
+			if r.err != nil {
+				return nil, nil, nil, nil, nil, r.err
+			}
 		}
 
-		partitions[v] = result.Partition
+		for _, r := range results {
+			v := r.v
+			partitions[v] = r.partition
 
-		commsSeen := make(map[int]struct{})
-		for _, commID := range result.Partition {
-			commsSeen[commID] = struct{}{}
-		}
-		for commID := range commsSeen {
-			personaOf[v][commID] = nextPersona
-			inverseMap[nextPersona] = v
-			nextPersona++
+			commsSeen := make(map[int]struct{})
+			for _, commID := range r.partition {
+				commsSeen[commID] = struct{}{}
+			}
+			for commID := range commsSeen {
+				personaOf[v][commID] = nextPersona
+				inverseMap[nextPersona] = v
+				nextPersona++
+			}
 		}
 	}
 
