@@ -96,11 +96,11 @@ graph/
 ### Active — v1.3
 
 - [x] Online API contract: `GraphDelta`, `OnlineOverlappingCommunityDetector`, `NewOnlineEgoSplitting`, `Update()` guard + empty-delta fast-path — validated in Phase 10
-- [ ] Online/incremental update API: `EgoSplittingDetector.Update(delta)` — node/edge additions trigger partial re-detection (Phase 11: incremental logic)
-- [ ] Incremental ego-net recomputation: only affected nodes' ego-nets recomputed
-- [ ] Warm-start global detection: reuse prior global partition as initial state
-- [ ] Convergence speed: 1~2 node/edge additions converge ≥10x faster than full re-detection
-- [ ] Parallel ego-net construction (goroutine pool) — resolves v1.2 1.5s/op bottleneck
+- [x] Incremental Update() with `computeAffected`, `buildPersonaGraphIncremental`, warm-start global detection — validated in Phase 11
+- [x] PersonaID collision-free allocation from `maxExistingPersonaID + 1` — validated in Phase 11
+- [x] Parallel ego-net construction (goroutine pool, GOMAXPROCS workers) — 250ms/op on 10K nodes — validated in Phase 12
+- [x] BenchmarkUpdate1Node ≥10x speedup (29x measured) — validated in Phase 12
+- [x] Result invariants (6-invariant assertResultInvariants) + `go test -race` concurrent safety — validated in Phase 13
 
 ### Out of Scope
 
