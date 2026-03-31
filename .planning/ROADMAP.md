@@ -60,7 +60,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   1. Caller can construct a `GraphDelta{AddedNodes: ..., AddedEdges: ...}` value and pass it to `Update()` without compilation errors
   2. `Update()` called with an empty `GraphDelta` returns the prior result pointer-equal to input within a single allocation, verified by benchmark showing O(1) behavior
   3. `Update()` called on a directed graph returns `ErrDirectedNotSupported` and no result, matching the behavior of `Detect()` on directed graphs
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 10-01-PLAN.md — GraphDelta type, OnlineOverlappingCommunityDetector interface, Update() with guards and empty-delta fast-path
 
 ### Phase 11: Incremental Recomputation Core
 **Goal**: Replace the full-graph recompute path inside `Update()` with incremental logic — affected-node scoping, ego-net selective rebuild, persona graph patching, and warm-started global detection — while preserving PersonaID disjointness.
@@ -107,7 +109,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 07: Persona Graph Infrastructure | v1.2 | 2/2 | Complete | 2026-03-30 |
 | 08: Full Detect Pipeline + Accuracy + Performance | v1.2 | 2/2 | Complete | 2026-03-30 |
 | 09: Edge Cases and Hardening | v1.2 | 1/1 | Complete | 2026-03-30 |
-| 10: Online API Contract | v1.3 | 0/1 | Not started | - |
+| 10: Online API Contract | v1.3 | 0/1 | Planned | - |
 | 11: Incremental Recomputation Core | v1.3 | 0/2 | Not started | - |
 | 12: Parallel Ego-Net Construction and Performance | v1.3 | 0/2 | Not started | - |
 | 13: Correctness Hardening and Race Safety | v1.3 | 0/1 | Not started | - |
