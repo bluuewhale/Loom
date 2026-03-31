@@ -140,18 +140,25 @@ func (r *NodeRegistry) Len() int
 
 ## Performance
 
-Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs. Python: python-louvain 0.16 + networkx 3.6.
+Benchmarks on Apple M4 (arm64), undirected Barabasi-Albert graphs.
 
-| Graph size | Algorithm | Go (loom) | Python (python-louvain) | Speedup |
-|------------|-----------|-----------|-------------------------|---------|
-| 1K nodes   | Louvain   | ~5.4ms    | ~91ms                   | ~17x    |
-| 1K nodes   | Leiden    | ~5.4ms    | N/A¹                    | —       |
-| 10K nodes  | Louvain   | ~63ms     | ~2,889ms                | ~46x    |
-| 10K nodes  | Leiden    | ~65ms     | N/A¹                    | —       |
+| Graph size | Library | Language | Algorithm | Time | vs python-louvain |
+|------------|---------|----------|-----------|------|-------------------|
+| 1K nodes   | **loom** | Go | Louvain | ~5.4ms | ~17x faster |
+| 1K nodes   | **loom** | Go | Leiden  | ~5.4ms | — |
+| 1K nodes   | python-louvain¹ | Python | Louvain | ~91ms | baseline |
+| 10K nodes  | **loom** | Go | Louvain | ~63ms | ~46x faster |
+| 10K nodes  | **loom** | Go | Leiden  | ~65ms | — |
+| 10K nodes  | gonum/graph/community² | Go | Louvain | ~2.3s | — |
+| 10K nodes  | python-louvain¹ | Python | Louvain | ~2,889ms | baseline |
 
-¹ python-louvain implements Louvain only. Install: `pip install networkx python-louvain`
+loom is **~46x faster than python-louvain** and **~37x faster than gonum** on 10K-node graphs. gonum's `community.Modularize` is a correct, general-purpose implementation; loom trades generality for a tight inner loop and `sync.Pool` state reuse.
 
-Both algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
+¹ `scripts/compare.py` benchmarks **python-louvain 0.16** (`community.best_partition`, `random_state=42`) with networkx 3.6 for graph construction. Install: `pip install networkx python-louvain`
+
+² `scripts/go-compare/` standalone Go module benchmarks **gonum v0.17** (`community.Modularize`) on the same graph topology.
+
+Both loom algorithms use `sync.Pool` for internal state reuse — safe for concurrent use across goroutines.
 
 ## Accuracy
 
