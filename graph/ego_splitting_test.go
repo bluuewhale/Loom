@@ -645,3 +645,114 @@ func TestEgoSplittingDetector_Detect_SingleNode(t *testing.T) {
 		t.Error("node 0 has no community memberships")
 	}
 }
+
+// --- Online API tests: ONLINE-01 through ONLINE-04 ---
+
+// Compile-time interface satisfaction check for OnlineOverlappingCommunityDetector.
+var _ OnlineOverlappingCommunityDetector = (*egoSplittingDetector)(nil)
+
+// TestNewOnlineEgoSplitting_ReturnsInterface verifies that NewOnlineEgoSplitting
+// returns a non-nil value implementing OnlineOverlappingCommunityDetector and that
+// default options are applied identically to NewEgoSplitting. (ONLINE-02)
+func TestNewOnlineEgoSplitting_ReturnsInterface(t *testing.T) {
+	d := NewOnlineEgoSplitting(EgoSplittingOptions{})
+	if d == nil {
+		t.Fatal("NewOnlineEgoSplitting returned nil")
+	}
+	impl, ok := d.(*egoSplittingDetector)
+	if !ok {
+		t.Fatal("NewOnlineEgoSplitting did not return *egoSplittingDetector")
+	}
+	if impl.opts.LocalDetector == nil {
+		t.Error("LocalDetector is nil after NewOnlineEgoSplitting with zero options")
+	}
+	if impl.opts.GlobalDetector == nil {
+		t.Error("GlobalDetector is nil after NewOnlineEgoSplitting with zero options")
+	}
+	if impl.opts.Resolution != 1.0 {
+		t.Errorf("Resolution = %v, want 1.0", impl.opts.Resolution)
+	}
+}
+
+// TestEgoSplittingDetector_Update_DirectedGraphError verifies that Update returns
+// ErrDirectedNotSupported when called on a directed graph. (ONLINE-04)
+func TestEgoSplittingDetector_Update_DirectedGraphError(t *testing.T) {
+	g := NewGraph(true) // directed
+	g.AddEdge(0, 1, 1.0)
+	d := NewOnlineEgoSplitting(EgoSplittingOptions{})
+	_, err := d.Update(g, GraphDelta{}, OverlappingCommunityResult{})
+	if !errors.Is(err, ErrDirectedNotSupported) {
+		t.Fatalf("expected ErrDirectedNotSupported, got: %v", err)
+	}
+}
+
+// TestEgoSplittingDetector_Update_EmptyDelta_ReturnsPrior verifies that Update
+// with an empty delta returns the prior result unchanged. (ONLINE-03)
+func TestEgoSplittingDetector_Update_EmptyDelta_ReturnsPrior(t *testing.T) {
+	g := makeTriangle()
+	d := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1}),
+	})
+	prior, err := d.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+	result, err := d.Update(g, GraphDelta{}, prior)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+	if len(result.Communities) != len(prior.Communities) {
+		t.Errorf("Update with empty delta: len(Communities) = %d, want %d", len(result.Communities), len(prior.Communities))
+	}
+	// All 3 nodes must be present in NodeCommunities.
+	for _, id := range []NodeID{0, 1, 2} {
+		if _, ok := result.NodeCommunities[id]; !ok {
+			t.Errorf("node %d missing from NodeCommunities after empty-delta Update", id)
+		}
+	}
+}
+
+// TestEgoSplittingDetector_Update_NonEmptyDelta_Placeholder verifies that Update
+// with a non-empty delta returns a valid result (falls back to Detect). (ONLINE-02)
+func TestEgoSplittingDetector_Update_NonEmptyDelta_Placeholder(t *testing.T) {
+	g := makeTriangle()
+	d := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1}),
+	})
+	prior, _ := d.Detect(g)
+	result, err := d.Update(g, GraphDelta{AddedNodes: []NodeID{99}}, prior)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+	if len(result.Communities) == 0 {
+		t.Error("expected at least one community after non-empty-delta Update")
+	}
+	// All 3 original nodes must be present (node 99 was added to delta but not to g).
+	for _, id := range []NodeID{0, 1, 2} {
+		if _, ok := result.NodeCommunities[id]; !ok {
+			t.Errorf("node %d missing from NodeCommunities after non-empty-delta Update", id)
+		}
+	}
+}
+
+// BenchmarkUpdate_EmptyDelta measures allocations for Update with an empty delta.
+// Expected: 0 allocs/op (prior is returned as-is). (ONLINE-03)
+func BenchmarkUpdate_EmptyDelta(b *testing.B) {
+	g := makeTriangle()
+	d := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1}),
+	})
+	prior, err := d.Detect(g)
+	if err != nil {
+		b.Fatalf("Detect error: %v", err)
+	}
+	delta := GraphDelta{}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = d.Update(g, delta, prior)
+	}
+}
