@@ -10,6 +10,12 @@ import "sort"
 // (u, v), it counts how many communities simultaneously contain both u and v in
 // the detected result (tResult) and in the ground truth (tGT), then computes
 // agreement adjusted for chance.
+//
+// Note: result.Communities must be populated for correct scoring. If Communities
+// is nil or empty while NodeCommunities is populated (e.g. a manually constructed
+// result), OmegaIndex will treat all detected memberships as empty and return a
+// misleadingly low score. Results returned by EgoSplittingDetector.Detect always
+// populate both fields.
 func OmegaIndex(result OverlappingCommunityResult, groundTruth [][]NodeID) float64 {
 	// Collect all unique node IDs from both result and ground truth into a sorted slice.
 	nodeSet := make(map[NodeID]struct{})
