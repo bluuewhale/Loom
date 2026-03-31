@@ -223,21 +223,50 @@ func TestEgoSplitting10KUnder300ms(t *testing.T) {
 	}
 }
 
+// medianSpeedup runs coldFn and warmFn each nSamples times via testing.Benchmark
+// and returns the median speedup ratio (cold ns/op ÷ warm ns/op).
+// Multiple samples guard against scheduling noise in any single measurement.
+func medianSpeedup(coldFn, warmFn func(*testing.B), nSamples int) float64 {
+	ratios := make([]float64, 0, nSamples)
+	for i := 0; i < nSamples; i++ {
+		cold := testing.Benchmark(coldFn)
+		warm := testing.Benchmark(warmFn)
+		if cold.NsPerOp() == 0 || warm.NsPerOp() == 0 {
+			continue
+		}
+		ratios = append(ratios, float64(cold.NsPerOp())/float64(warm.NsPerOp()))
+	}
+	if len(ratios) == 0 {
+		return 0
+	}
+	// Sort and pick middle element (lower-median for even counts).
+	for i := 1; i < len(ratios); i++ {
+		for j := i; j > 0 && ratios[j] < ratios[j-1]; j-- {
+			ratios[j], ratios[j-1] = ratios[j-1], ratios[j]
+		}
+	}
+	return ratios[len(ratios)/2]
+}
+
 // TestLouvainWarmStartSpeedup enforces that warm-start Louvain is at least 1.2x faster
 // than cold-start on the 10K-node BA graph. Uses testing.Benchmark to measure both
 // BenchmarkLouvain10K and BenchmarkLouvainWarmStart programmatically. (IG-2)
+//
+// Takes 3 samples and uses the median ratio to guard against scheduling noise.
+// Skipped under -race: the race detector adds ~3x overhead per iteration, causing
+// testing.Benchmark (1s wall budget) to collect too few samples for a reliable ratio.
 func TestLouvainWarmStartSpeedup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping speedup test in short mode")
 	}
-	cold := testing.Benchmark(BenchmarkLouvain10K)
-	warm := testing.Benchmark(BenchmarkLouvainWarmStart)
-	if cold.NsPerOp() == 0 || warm.NsPerOp() == 0 {
+	if raceEnabled {
+		t.Skip("skipping timing test under -race (instrumentation skews ns/op ratio)")
+	}
+	speedup := medianSpeedup(BenchmarkLouvain10K, BenchmarkLouvainWarmStart, 3)
+	if speedup == 0 {
 		t.Skip("benchmark returned 0 ns/op — too fast to measure")
 	}
-	speedup := float64(cold.NsPerOp()) / float64(warm.NsPerOp())
-	t.Logf("Louvain warm-start speedup: %.2fx (cold=%dns, warm=%dns)",
-		speedup, cold.NsPerOp(), warm.NsPerOp())
+	t.Logf("Louvain warm-start speedup (median of 3): %.2fx", speedup)
 	if speedup < 1.2 {
 		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
 	}
@@ -246,18 +275,21 @@ func TestLouvainWarmStartSpeedup(t *testing.T) {
 // TestLeidenWarmStartSpeedup enforces that warm-start Leiden is at least 1.2x faster
 // than cold-start on the 10K-node BA graph. Uses testing.Benchmark to measure both
 // BenchmarkLeiden10K and BenchmarkLeidenWarmStart programmatically. (IG-2)
+//
+// Takes 3 samples and uses the median ratio to guard against scheduling noise.
+// Skipped under -race: same reasoning as TestLouvainWarmStartSpeedup.
 func TestLeidenWarmStartSpeedup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping speedup test in short mode")
 	}
-	cold := testing.Benchmark(BenchmarkLeiden10K)
-	warm := testing.Benchmark(BenchmarkLeidenWarmStart)
-	if cold.NsPerOp() == 0 || warm.NsPerOp() == 0 {
+	if raceEnabled {
+		t.Skip("skipping timing test under -race (instrumentation skews ns/op ratio)")
+	}
+	speedup := medianSpeedup(BenchmarkLeiden10K, BenchmarkLeidenWarmStart, 3)
+	if speedup == 0 {
 		t.Skip("benchmark returned 0 ns/op — too fast to measure")
 	}
-	speedup := float64(cold.NsPerOp()) / float64(warm.NsPerOp())
-	t.Logf("Leiden warm-start speedup: %.2fx (cold=%dns, warm=%dns)",
-		speedup, cold.NsPerOp(), warm.NsPerOp())
+	t.Logf("Leiden warm-start speedup (median of 3): %.2fx", speedup)
 	if speedup < 1.2 {
 		t.Errorf("warm-start speedup %.2fx < 1.2x threshold", speedup)
 	}

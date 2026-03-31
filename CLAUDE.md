@@ -3,6 +3,7 @@
 ## Git
 
 - Do **not** add `Co-Authored-By: Claude` or any Claude Code co-author trailer to commit messages.
+- **Never merge directly into `main` locally.** All changes must go through a feature branch and be merged via a GitHub PR. Local `git merge` into `main` creates duplicate commit histories when multiple worktrees are in use.
 
 ## Merge Conflict Resolution
 
