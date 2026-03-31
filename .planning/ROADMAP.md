@@ -87,7 +87,10 @@ Plans:
   1. `BenchmarkUpdate1Node` reports ns/op ≥10x lower than `BenchmarkDetect` run on the same post-addition graph (Karate Club + 1 node), measured with `go test -bench`
   2. `BenchmarkUpdate1Edge` reports ns/op ≥10x lower than `BenchmarkDetect` run on the same post-addition graph (Karate Club + 1 edge), measured with `go test -bench`
   3. `BenchmarkEgoSplitting10K` reports ≤300ms/op on a 10,000-node graph, down from the ~1500ms/op baseline measured before this phase
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 12-01-PLAN.md — Parallel ego-net construction with runEgoNetsParallel worker pool, BenchmarkEgoSplitting10K <=300ms/op
+- [ ] 12-02-PLAN.md — Update() speedup benchmarks (BenchmarkUpdate1Node, BenchmarkUpdate1Edge) with >=10x assertion tests
 
 ### Phase 13: Correctness Hardening and Race Safety
 **Goal**: Prove through tests that `Update()` results satisfy all structural invariants and that concurrent use on distinct detector instances produces no data races.
