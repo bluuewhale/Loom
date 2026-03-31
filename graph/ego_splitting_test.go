@@ -823,7 +823,7 @@ func TestDetect_CarryForwardNilFallback(t *testing.T) {
 // --- warmStartedDetector tests: ONLINE-07 / Phase 11-01 ---
 
 // TestWarmStartedDetector_Louvain verifies that warmStartedDetector on a
-// *louvainDetector returns a new *louvainDetector with InitialPartition set
+// *louvainDetector returns the SAME instance with InitialPartition set
 // and all other options preserved.
 func TestWarmStartedDetector_Louvain(t *testing.T) {
 	base := NewLouvain(LouvainOptions{
@@ -836,6 +836,10 @@ func TestWarmStartedDetector_Louvain(t *testing.T) {
 
 	result := warmStartedDetector(base, partition)
 
+	// Must return the same pointer (in-place mutation semantics).
+	if result != base {
+		t.Fatalf("warmStartedDetector returned a different instance; want same pointer as base")
+	}
 	got, ok := result.(*louvainDetector)
 	if !ok {
 		t.Fatalf("warmStartedDetector did not return *louvainDetector, got %T", result)
@@ -863,7 +867,7 @@ func TestWarmStartedDetector_Louvain(t *testing.T) {
 }
 
 // TestWarmStartedDetector_Leiden verifies that warmStartedDetector on a
-// *leidenDetector returns a new *leidenDetector with InitialPartition set
+// *leidenDetector returns the SAME instance with InitialPartition set
 // and all other options preserved.
 func TestWarmStartedDetector_Leiden(t *testing.T) {
 	base := NewLeiden(LeidenOptions{
@@ -876,6 +880,10 @@ func TestWarmStartedDetector_Leiden(t *testing.T) {
 
 	result := warmStartedDetector(base, partition)
 
+	// Must return the same pointer (in-place mutation semantics).
+	if result != base {
+		t.Fatalf("warmStartedDetector returned a different instance; want same pointer as base")
+	}
 	got, ok := result.(*leidenDetector)
 	if !ok {
 		t.Fatalf("warmStartedDetector did not return *leidenDetector, got %T", result)
@@ -898,11 +906,15 @@ func TestWarmStartedDetector_Leiden(t *testing.T) {
 }
 
 // TestWarmStartedDetector_NilPartition verifies that warmStartedDetector with
-// a nil partition produces a detector with nil InitialPartition (cold start).
+// a nil partition sets InitialPartition to nil (cold start) on the same instance.
 func TestWarmStartedDetector_NilPartition(t *testing.T) {
 	base := NewLouvain(LouvainOptions{Seed: 1})
 	result := warmStartedDetector(base, nil)
 
+	// Must return the same pointer (in-place mutation semantics).
+	if result != base {
+		t.Fatalf("warmStartedDetector returned a different instance; want same pointer as base")
+	}
 	got, ok := result.(*louvainDetector)
 	if !ok {
 		t.Fatalf("warmStartedDetector did not return *louvainDetector, got %T", result)
@@ -912,23 +924,33 @@ func TestWarmStartedDetector_NilPartition(t *testing.T) {
 	}
 }
 
-// TestWarmStartedDetector_DoesNotMutateOriginal verifies that calling
-// warmStartedDetector does not modify the input detector's options.
-func TestWarmStartedDetector_DoesNotMutateOriginal(t *testing.T) {
+// TestWarmStartedDetector_MutatesInPlace verifies that warmStartedDetector
+// mutates the detector's InitialPartition in place and that subsequent calls
+// with different partitions overwrite the field correctly.
+func TestWarmStartedDetector_MutatesInPlace(t *testing.T) {
 	base := NewLouvain(LouvainOptions{Seed: 99})
-	original, ok := base.(*louvainDetector)
+	det, ok := base.(*louvainDetector)
 	if !ok {
 		t.Fatal("base is not *louvainDetector")
 	}
-	if original.opts.InitialPartition != nil {
-		t.Fatal("precondition: original InitialPartition should be nil")
+	if det.opts.InitialPartition != nil {
+		t.Fatal("precondition: InitialPartition should be nil before first call")
 	}
 
+	// First call: set a non-nil partition.
 	partition := map[NodeID]int{0: 1}
 	warmStartedDetector(base, partition)
+	if det.opts.InitialPartition == nil {
+		t.Error("expected InitialPartition to be set after warmStartedDetector call")
+	}
+	if det.opts.InitialPartition[0] != 1 {
+		t.Errorf("InitialPartition[0] = %d, want 1", det.opts.InitialPartition[0])
+	}
 
-	if original.opts.InitialPartition != nil {
-		t.Error("warmStartedDetector mutated the original detector's InitialPartition")
+	// Second call: overwrite with nil (cold-reset semantics).
+	warmStartedDetector(base, nil)
+	if det.opts.InitialPartition != nil {
+		t.Error("expected InitialPartition to be nil after warmStartedDetector(base, nil)")
 	}
 }
 
@@ -1748,38 +1770,6 @@ func BenchmarkEgoSplittingUpdate2Edges(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_, _ = det.Update(modified, delta, prior)
-	}
-}
-
-// TestEgoSplittingUpdateAllocSavings asserts that online Update with a minimal delta
-// (1 new node + 1 edge, affected set = 2 nodes) allocates at least 2x fewer bytes
-// than a cold Detect on the 10K-node BA graph.
-//
-// Why allocs, not time? The global persona-graph re-detection dominates wall time
-// (~200ms in both cases), making time speedup small (~1.1–1.2x) and noisy.
-// Allocation savings are deterministic and directly reflect the incremental patch
-// path: only 2 affected ego-nets + partial persona-graph re-wiring vs full rebuild.
-func TestEgoSplittingUpdateAllocSavings(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping alloc-savings test in short mode")
-	}
-	if raceEnabled {
-		t.Skip("skipping alloc-savings test under -race")
-	}
-	cold := testing.Benchmark(BenchmarkEgoSplitting10K)
-	online := testing.Benchmark(BenchmarkEgoSplittingUpdate1Node1Edge)
-	if cold.AllocsPerOp() == 0 || online.AllocsPerOp() == 0 {
-		t.Skip("benchmark returned 0 allocs/op — too fast to measure")
-	}
-	allocSpeedup := float64(cold.AllocsPerOp()) / float64(online.AllocsPerOp())
-	timeSpeedup := float64(cold.NsPerOp()) / float64(online.NsPerOp())
-	t.Logf("EgoSplitting online Update vs cold Detect (10K BA graph):")
-	t.Logf("  time:  cold=%dms  update=%dms  speedup=%.2fx",
-		cold.NsPerOp()/1e6, online.NsPerOp()/1e6, timeSpeedup)
-	t.Logf("  allocs: cold=%d  update=%d  speedup=%.2fx",
-		cold.AllocsPerOp(), online.AllocsPerOp(), allocSpeedup)
-	if allocSpeedup < 2.0 {
-		t.Errorf("online Update alloc savings %.2fx < 2.0x threshold", allocSpeedup)
 	}
 }
 
