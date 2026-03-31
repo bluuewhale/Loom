@@ -1,162 +1,170 @@
 # Project Research Summary
 
-**Project:** loom — Go GraphRAG community-detection library
-**Domain:** High-performance graph community detection (Louvain + Leiden) for GraphRAG pipelines
-**Researched:** 2026-03-29
+**Project:** Ego Splitting Framework (v1.2)
+**Domain:** Overlapping community detection — Go library extension
+**Researched:** 2026-03-30
 **Confidence:** HIGH
-
----
 
 ## Executive Summary
 
-loom is a zero-dependency Go library delivering Louvain and Leiden community detection for real-time GraphRAG pipelines. The existing codebase already has the correct foundations: a weighted directed/undirected `Graph`, validated `ComputeModularity`, and `NodeRegistry`. The research verdict is to build directly on these with no external graph library — Gonum covers Louvain but not Leiden, requires a heavyweight interface wrapper, and would add transitive dependency weight with no net reduction in implementation effort. Pure stdlib with `sync.Pool` and flat-slice data structures meets the 10K-node / <100ms performance target.
+The v1.2 milestone adds overlapping community detection to the existing `package graph` Go library (which already implements Louvain and Leiden). The chosen algorithm is the Ego Splitting Framework (Epasto et al., KDD 2017), a three-step reduction that transforms the overlapping detection problem into a standard non-overlapping problem on a "persona graph," then lifts the result back. The key insight is that every node in a social graph can occupy multiple social roles (personas), each corresponding to a distinct community in its local neighborhood. By splitting nodes into personas and rewiring edges, the existing `CommunityDetector` interface (Louvain or Leiden) is reused without modification for both local ego-net detection and persona-graph detection.
 
-The recommended algorithm priority is Leiden first. Louvain produces disconnected communities — Traag et al. found up to 25% badly connected and 16% fully disconnected in practice. For GraphRAG, a disconnected community conflates semantically unrelated entities and degrades summarisation quality. Leiden's refinement phase guarantees community connectivity at a cost that is actually faster than Louvain in benchmarks (20–150% speedup). Louvain should still be implemented as a swap-in alternative for callers with existing pipelines.
+The recommended implementation strategy is purely additive: zero new runtime dependencies, no changes to existing files, and four new source files within `package graph`. The algorithm's three phases map cleanly onto the existing codebase — `g.Subgraph()` handles ego-net extraction, `CommunityDetector.Detect()` handles local and persona-graph detection, and the new `OverlappingCommunityDetector` interface mirrors the existing `CommunityDetector` pattern for a symmetric caller experience. The implementation should be sequential for v1.2 (goroutine parallelism deferred); the 200–300ms target for a 10K-node graph is achievable sequentially given that persona graphs are 2–3x the original size and Louvain at 10K runs in ~48ms.
 
-The dominant risks are all algorithm-correctness traps, not architecture uncertainty. The ΔQ formula has three subtle failure modes (self-loop double-counting, factor-of-2 in `2m`, γ applied to the wrong term), and Louvain has a confirmed infinite-loop bug in Gonum when ΔQ ≈ float64 noise. Every correctness risk has a specific unit test that catches it. The architecture is straightforward: a single `package graph`, stateless detector structs, per-call `louvainState` via `sync.Pool`, and flat-slice accumulation replacing per-node map allocations.
-
----
+The critical risks are implementation-correctness traps, not architectural unknowns. Nine specific pitfalls are fully documented (EGO-CRIT-01 through -09), covering the three most dangerous: (1) accidentally including the ego node in its own ego-net, which eliminates all persona splitting; (2) persona NodeID space collision with original NodeIDs; and (3) using standard (non-overlapping) NMI for accuracy validation, which silently validates the wrong property. All nine are preventable with explicit unit test assertions at each algorithm boundary.
 
 ## Key Findings
 
 ### Recommended Stack
 
-Stay zero-dependency. All algorithm code imports only `community-detection/graph` and stdlib. Dev-only tooling (`benchstat`, `pprof`) is installed via `go install` and never becomes a module dependency. Go 1.26.1 provides generics, range-over-func, `slices`/`maps` stdlib packages, PGO, and the Go 1.24 `b.Loop()` benchmark API — no external packages are needed for any of these.
+The entire implementation lives inside the existing `package graph` with no new dependencies. Go 1.26.1 stdlib covers all requirements: `slices` and `maps` (1.21+) for deterministic sorted iteration and partition copying, `sync.Pool` for scratch buffer reuse (already the established pattern in `louvain_state.go` and `leiden_state.go`), and `math/rand` for seeded determinism. The persona graph is a standard `*Graph` with NodeIDs in a new numeric range — no new graph type is needed. The development toolchain (`go test -race`, `-bench`, `-benchmem`, `benchstat`, `pprof`) is unchanged from v1.0/v1.1.
 
 **Core technologies:**
-- **Go 1.26.1 stdlib only** — zero transitive deps; a library feature, not a limitation
-- **`sync.Pool` for `louvainState`** — amortises 5× O(N) slice allocations across concurrent calls
-- **`benchstat` (dev install)** — statistical A/B benchmark comparison; standard Go perf tooling
-- **`testing.B` + `b.Loop()` (Go 1.24)** — canonical benchmark harness; avoids timer-manipulation pitfalls
+- `package graph` (internal): Graph, NodeID, CommunityDetector, Subgraph — all reused directly without modification
+- `slices` / `maps` stdlib: deterministic iteration and partition copying — already used throughout codebase
+- `sync.Pool`: scratch buffer reuse for inner Detect calls — established pattern in louvain_state.go
+- `math/rand` (seeded): reproducibility for persona assignment — same pattern as existing detectors
 
 ### Expected Features
 
 **Must have (table stakes):**
-- `CommunityDetector` interface with `Detect(g *Graph) (CommunityResult, error)` — swap-in contract
-- `LouvainOptions` / `LeidenOptions` structs — resolution γ, seed, max iterations, tolerance
-- `CommunityResult` with `Partition map[NodeID]int`, `Modularity float64`, `Passes int`, `Moves int`
-- `DefaultLouvain()` / `DefaultLeiden()` convenience constructors
-- Edge-case guards: empty graph, single node, zero-edge graph, negative resolution — no panics
-- Concurrent safety: stateless detector receivers; all mutable state per-call or pooled
+- `OverlappingCommunityDetector` interface with `Detect(*Graph) (OverlappingCommunityResult, error)` — symmetric with existing `CommunityDetector`
+- `OverlappingCommunityResult` with `Communities [][]NodeID` and `NodeCommunities map[NodeID][]int` (forward + inverse index)
+- Algorithm 1: ego-net extraction per node via `g.Subgraph(neighbors)` + local community detection
+- Algorithm 2: persona graph construction with co-membership edge wiring and disjoint PersonaID namespace
+- Algorithm 3: persona graph detection + overlapping community recovery (collect ALL persona memberships per original node)
+- Pluggable inner detector: `EgoSplittingOptions.Inner CommunityDetector` accepts any `CommunityDetector`
+- Edge case guards: empty graph, single node, directed graph (`ErrDirectedNotSupported`)
+- Accuracy validation: Omega index (primary) + best-match F1 (secondary) on Karate Club, Football, Polbooks
+- Performance benchmark: 10K-node synthetic graph target 200–300ms
 
-**Should have (differentiators):**
-- Leiden connected-community guarantee — the core reason to use Leiden over Louvain for GraphRAG
-- `UseLCC bool` option — Microsoft GraphRAG's own recommendation for sparse KG subgraphs
-- Iterative Leiden convergence to γ-dense, subset-optimal partition
-- Football (115 nodes) and Polbooks (105 nodes) benchmark fixtures for NMI accuracy validation
+**Should have (competitive):**
+- Any inner detector choice (Louvain or Leiden) — unlike most overlapping libraries that hardcode the inner algorithm
+- `OverlappingRatio float64` in result — fraction of nodes bridging communities; useful diagnostic for GraphRAG callers
+- Concurrent ego-net detection (goroutine worker pool, bounded to `runtime.NumCPU()`) — defer until profiling confirms Algorithm 1 is bottleneck
 
 **Defer (v2+):**
-- Full dendrogram / `DetectHierarchy` — no GraphRAG use case identified
-- LFR synthetic benchmark generation — adds code complexity; static fixtures suffice
-- Overlapping community detection — incompatible with <100ms target at this scale
-- Auto-tuning of resolution γ — callers in deterministic pipelines need explicit control
+- Overlapping NMI (Lancichinetti 2009 / McDaid 2011 NMI_max) — non-trivial to implement; Omega index + F1 sufficient for v1.2
+- Expose persona graph in `OverlappingCommunityResult` — trigger: explicit caller request for persona-level analysis
+- Fuzzy/probabilistic membership — different algorithm family (BigCLAM, MNMF), out of scope
+- Directed graph support — requires new ego-net definition; reject with error in v1.2
+- Streaming / incremental persona graph updates — research-grade, significant API change
 
 ### Architecture Approach
 
-Stay in a single `package graph`. The existing code, the new `CommunityDetector` interface, both algorithm structs, and all internal state types live together. Splitting into `graph/louvain` and `graph/leiden` sub-packages would require exporting internal state types and add import ceremony with no benefit at this scale. File layout: `detector.go` (interface + result types), `louvain.go` + `louvain_state.go`, `leiden.go` + `leiden_state.go`. All state (`louvainState`, `leidenState`) is unexported.
+The ego-splitting layer sits above the existing `CommunityDetector` implementations and satisfies a new `OverlappingCommunityDetector` interface. It calls the inner detector N+1 times per `Detect` invocation (N ego-nets + 1 persona graph) without modifying any existing code. The `egoSplittingDetector` struct is stateless — all mutable state is heap-allocated per `Detect` call — matching the existing Louvain/Leiden concurrency model. Four new files are added; zero existing files are modified.
 
 **Major components:**
-1. **`detector.go`** — `CommunityDetector` interface, `CommunityResult`, `LouvainOptions`, `LeidenOptions`, `Partition` type alias
-2. **`louvain.go` + `louvain_state.go`** — `LouvainDetector`; stateless receiver; `louvainState` holds flat-slice assignment, totalDegree, internalWeight, neighborWeightBuf (pre-sized, dirty-list reset), nodeDegree cache; pooled via `sync.Pool`
-3. **`leiden.go` + `leiden_state.go`** — `LeidenDetector`; embeds `louvainState`; adds `refinedAssignment`, `dirtyQueue`/`dirtySet` for queue-based visiting after first pass
-4. **`testdata/fixtures.go`** — Football, Polbooks benchmark graphs; NMI accuracy assertions
+1. `overlapping_detector.go` — `OverlappingCommunityDetector` interface, `OverlappingCommunityResult`, `EgoSplittingOptions`, `NewEgoSplitting` constructor
+2. `ego_splitting.go` — `egoSplittingDetector` struct, `Detect` method orchestrating Algorithms 1–3, `buildEgoNets` function
+3. `persona.go` — `personaMap` type (unexported), `buildPersonaGraph`, `mapPersonasToOriginal`; internal only, scoped to one `Detect` call lifetime
+4. `ego_splitting_test.go` — unit tests per algorithm step, integration tests on all 3 benchmark fixtures, Omega/F1 accuracy assertions, performance benchmark
 
 ### Critical Pitfalls
 
-1. **Self-loop double-counting in ΔQ inner loop (CRIT-01)** — When iterating `g.Neighbors(u)` to accumulate neighbor-community weights, skip edges where `e.To == u`. Failing to do so inflates Q and causes over-merging. Confirmed real bug in Sotera spark-louvain and Gonum.
+1. **EGO-CRIT-01: Ego node included in its own ego-net** — Pass only `neighbors` to `g.Subgraph()`, never append `v` itself. Warning sign: every ego-net yields a single community and persona count equals original node count.
 
-2. **Factor-of-2 error in `totalWeight` / `2m` (CRIT-02)** — For undirected graphs where `AddEdge(u,v,w)` stores both `adj[u]` and `adj[v]`, iterating `g.Neighbors` sums each edge twice. Compute `totalWeight` from `g.Edges()` (unique edges only). Detection test: single edge `u—v`, two-community partition must give Q = -0.5 exactly.
+2. **EGO-CRIT-02: Persona NodeID collision with original NodeIDs** — Use an independent monotonic counter for PersonaIDs, never reuse original NodeIDs. Assert `personaToOriginal` map is bijective and keys never overlap `[0, g.NodeCount())`.
 
-3. **Tiny ΔQ infinite loop (CRIT-05)** — Using `deltaQ > 0.0` (strict) accepts float64 noise (~2.7e-21) as a valid improvement, causing infinite phase-1 loops. Confirmed bug in gonum/gonum #1488. Fix: always use `deltaQ > opts.Tolerance` (default 1e-7) as the move threshold.
+3. **EGO-CRIT-03: Double-counted edges in persona graph** — Undirected graph iteration visits each edge twice; deduplicate with a canonical-key set before calling `personaGraph.AddEdge`. Assert `personaGraph.TotalWeight() == g.TotalWeight()`.
 
-4. **Phase-2 missing self-loop preservation (CRIT-06)** — When building the supergraph, intra-community edge weights must be stored as a self-loop on the supernode, not discarded. Discarding them initialises `Σ_in = 0` on every supernode, causing over-aggressive merging in subsequent passes. Invariant: `ComputeModularity(supergraph, identity) == ComputeModularity(original, phase1Partition)`.
+4. **EGO-CRIT-05: Incomplete community recovery in Algorithm 3** — Collect ALL community IDs across all of a node's personas, not just the first. Assert that at least one node has multiple memberships on Karate Club.
 
-5. **Leiden selective refinement produces disconnected communities (CRIT-08)** — Refining only dirty communities after local-moving can disconnect source communities. Always refine ALL communities after each local-moving phase. Assert connectivity after every Leiden iteration in tests.
-
----
+5. **EGO-CRIT-06: Wrong NMI variant for overlapping accuracy** — Standard `nmi()` is undefined for overlapping assignments and will produce misleadingly high scores when detection degrades to non-overlapping. Implement Omega index or `overlapNMI` (McDaid 2011 NMI_max) as the primary gate.
 
 ## Implications for Roadmap
 
-### Phase 1: Interface + Louvain Core
-**Rationale:** `CommunityDetector` interface unblocks everything; Louvain is simpler to implement (2-phase vs 3-phase) and validates the data structures before Leiden is built on top.
-**Delivers:** Working `LouvainDetector` passing Karate Club accuracy test; `CommunityResult`; all edge-case guards.
-**Addresses:** `CommunityDetector` interface, `LouvainOptions`, partition output, empty/single-node/disconnected graph handling, error on invalid resolution.
-**Avoids:** CRIT-01 (self-loop skip), CRIT-02 (2m factor), CRIT-03 (γ placement), CRIT-05 (tolerance guard), CRIT-06 (supergraph self-loop).
+Based on research, the architecture document's 6-phase build order maps directly onto a roadmap. Each phase leaves the package in a passing-tests state and gates the next phase.
 
-### Phase 2: Leiden Implementation
-**Rationale:** Leiden is the recommended default; it builds on the Louvain phase-1 state but adds refinement. Implementing second means the `louvainState` embedding and `sync.Pool` patterns are already proven.
-**Delivers:** Working `LeidenDetector` with connected-community guarantee; `dirtyQueue`-based optimisation; NMI ≥ 0.90 on Football graph.
-**Uses:** `leidenState` embedding `louvainState`; same `sync.Pool` pattern; `math/rand/v2` per-call RNG (CONC-04).
-**Avoids:** CRIT-08 (refine all communities); assert connectivity after each iteration.
+### Phase 1: Types and Interfaces
+**Rationale:** All subsequent code depends on the interface and result type definitions. Zero risk — purely additive, no logic yet. Establishes the API contract early so tests can be written before implementation is complete.
+**Delivers:** `OverlappingCommunityDetector` interface, `OverlappingCommunityResult` struct, `EgoSplittingOptions`, `NewEgoSplitting` stub (returns unimplemented error). Package compiles; all existing tests pass.
+**Addresses:** Table-stakes interface symmetry with `CommunityDetector`; directed graph guard (EGO-CRIT-09).
+**Avoids:** Anti-pattern of merging into existing `CommunityDetector` interface, which would be a breaking change.
 
-### Phase 3: Performance Hardening + Benchmark Fixtures
-**Rationale:** The <100ms / 10K-node target needs measurement before it can be declared met. Performance optimisations (neighborWeightBuf dirty-list, node-degree cache, `sync.Pool` zero-fill) should be validated with benchstat A/B comparisons, not assumed.
-**Delivers:** Football and Polbooks fixtures; `BenchmarkLouvain10K` and `BenchmarkLeiden10K` passing 100ms; confirmed `0 allocs/op` after pool warmup; `go test -race` clean.
-**Avoids:** PERF-01 (setup outside loop), PERF-02 (sink return values), PERF-03 (full zero-fill in `st.reset`), PERF-04 (-benchmem assertion), CONC-01 (no state on receiver), CONC-03 (clear() full buffer).
+### Phase 2: Persona Graph Infrastructure
+**Rationale:** The persona mapping layer (`persona.go`) contains two independent critical pitfalls (EGO-CRIT-02, EGO-CRIT-03). Validating it in isolation on hand-crafted small graphs makes bugs cheap to catch before they compound with Algorithm 1 bugs.
+**Delivers:** `personaMap` type, `buildPersonaGraph`, `mapPersonasToOriginal`. Unit tests asserting: (a) persona IDs never overlap original IDs, (b) `personaGraph.TotalWeight() == g.TotalWeight()`, (c) inverse map is bijective.
+**Addresses:** EGO-CRIT-02 (NodeID collision), EGO-CRIT-03 (double-counted edges).
+**Avoids:** Silent edge-weight doubling and NodeID aliasing before they are entangled with Algorithm 1 logic.
 
-### Phase 4: Production-Grade Options + UseLCC
-**Rationale:** `UseLCC` is important for production GraphRAG but requires connected-component extraction (a new utility). Deferring it avoids blocking Phases 1–3 on an optional feature.
-**Delivers:** `UseLCC bool` option with LCC extraction; isolated nodes absent from `Partition`; documentation of sparse-graph non-reproducibility warning.
-**Addresses:** EG-04 (giant component + singletons), sparse KG GraphRAG use case.
+### Phase 3: Algorithm 1 — Ego-Net Construction
+**Rationale:** `buildEgoNets` is independent of `buildPersonaGraph` at the code level. Testing ego-net extraction in isolation surfaces EGO-CRIT-01 (ego node inclusion) immediately — the most common first-pass correctness error.
+**Delivers:** `buildEgoNets(g, inner, minSize)` function. Unit tests asserting: ego-net for node `v` contains no entry equal to `v`; inner `Detect` called once per node; degenerate cases (degree 0, degree 1) return correctly.
+**Addresses:** EGO-CRIT-01 (ego node in ego-net), EGO-CRIT-04 (star-center persona explosion — surface `MinEgoNetSize` option).
+**Avoids:** Including ego node in subgraph; unbounded persona count on star-topology inputs.
+
+### Phase 4: Full Detect Pipeline (Algorithms 2 + 3) and Integration Tests
+**Rationale:** Wire the three phases together into `egoSplittingDetector.Detect`. Integration tests on Karate Club, Football, and Polbooks confirm end-to-end correctness and surface EGO-CRIT-05 (wrong community recovery).
+**Delivers:** Complete `Detect` method. Integration tests: result is non-empty; at least one node has `len(communities) > 1` on Karate Club; `go test -race` passes (sequential implementation, no goroutines to race).
+**Addresses:** EGO-CRIT-05 (incomplete community recovery).
+**Avoids:** Taking only the first persona's community assignment; silently degrading to non-overlapping behavior.
+
+### Phase 5: Accuracy Validation and Performance Benchmarks
+**Rationale:** Accuracy tests require a working end-to-end pipeline from Phase 4. Omega index and best-match F1 are the correct metrics — not standard NMI. Performance benchmarks on 10K-node graphs confirm the 200–300ms target.
+**Delivers:** `OmegaIndex`, `BestMatchF1` functions. Accuracy tests with empirically-calibrated thresholds on all three fixture graphs. `BenchmarkEgoSplitting` at 10K nodes.
+**Addresses:** EGO-CRIT-06 (wrong NMI variant), 10K performance target, quality gate for v1.2.
+**Avoids:** Using `nmi()` for overlapping validation; treating non-overlapping degradation as a passing test.
+
+### Phase 6: Edge Cases and Hardening
+**Rationale:** Edge cases are cheap to add after the main pipeline is validated. They protect against panics in production callers that pass degenerate inputs.
+**Delivers:** Guards and tests for empty graph, single-node graph, disconnected graph, star graph, all-isolated nodes, directed graph. All "Looks Done But Isn't" checklist items from PITFALLS.md verified as test assertions.
+**Addresses:** All EGO-CRIT-0X warning-sign assertions; robust directed-graph rejection.
+**Avoids:** Panics on degenerate inputs; silent incorrect results without error return.
 
 ### Phase Ordering Rationale
 
-- Louvain before Leiden: same data structures, simpler to validate; Leiden embeds Louvain state
-- Interface defined in Phase 1: both detectors are swap-in implementations from the start
-- Performance hardening after both algorithms: no point optimising before correctness is confirmed
-- `UseLCC` last: depends on a new BFS/DFS component utility; all other features independent
+- **Types before logic (Phase 1 first):** Prevents interface churn mid-implementation. The `OverlappingCommunityResult` shape propagates through all downstream phases.
+- **Persona infrastructure before algorithms (Phase 2 before 3):** Persona ID correctness is hard to debug once entangled with ego-net logic; independent validation is essential.
+- **Sequential before parallel:** EGO-CRIT-07 and EGO-CRIT-08 (pool thrashing, race conditions) apply only to parallel ego-net detection. The 200–300ms target is achievable sequentially. Parallelism is a post-v1.2 optimization.
+- **Accuracy metrics after full pipeline (Phase 5 after 4):** Omega index requires a working `Detect` call; implementing metrics against a stub wastes time.
+- **Edge cases last (Phase 6):** Guards on broken logic add no value. Edge-case paths require a stable happy path.
 
 ### Research Flags
 
-Phases with well-documented patterns (can skip `/gsd:research-phase`):
-- **Phase 1 (Louvain Core):** ΔQ formula is well-specified; PITFALLS.md documents every trap with detection tests
-- **Phase 3 (Benchmarking):** Standard Go patterns; STACK.md and PITFALLS.md cover all tooling decisions
+Phases with standard patterns (skip deeper research):
+- **Phase 1:** Interface definition follows the established `CommunityDetector` pattern exactly.
+- **Phase 3:** `g.Subgraph()` already exists; `inner.Detect()` already works. Pure reuse.
+- **Phase 4:** Algorithm 3 backprojection is a straightforward map inversion. Well-documented in paper.
+- **Phase 6:** Guard patterns already established by `ErrDirectedNotSupported` in Louvain/Leiden.
 
-Phases that may benefit from targeted research during planning:
-- **Phase 2 (Leiden Refinement):** The Traag 2019 paper is clear on algorithm structure, but the arxiv 2402.11454 paper (selective refinement bug) is a 2024 finding — worth reviewing the implementation details carefully before writing code
-- **Phase 4 (UseLCC):** Connected-component extraction API design (return type, edge-node mapping back to original graph IDs) has not been researched in detail
-
----
+Phases that may benefit from deeper research during planning:
+- **Phase 2:** The co-membership edge-wiring condition in Algorithm 2 is subtle: edge (u,v) goes to persona pair (pu, pv) only when u and v co-appear in the same local community in BOTH u's and v's ego-nets. The `commInEgoNet[u][v]` lookup structure needs careful design; validate against paper Section 2.2 before implementing.
+- **Phase 5:** Omega index (O(n^2) pairwise) needs threshold calibration per fixture. Best-match F1 matching strategy (greedy vs optimal) may affect scores. Plan time to determine empirical thresholds after Phase 4 produces results.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Zero-dep decision is unambiguous; benchmarking tooling is stdlib + one dev install |
-| Features | HIGH (algorithm) / MEDIUM (Go interface) | Algorithm parameters sourced from Traag 2019 and production implementations (Neo4j GDS, NetworkX); Go interface pattern is inference from idiomatic Go |
-| Architecture | HIGH (package layout, concurrency) / MEDIUM (Leiden dirty-queue) | sync.Pool and flat-slice patterns are well-established; dirty-queue efficiency claim sourced from GVE-Louvain abstract only |
-| Pitfalls | HIGH | CRIT-05 and CRIT-08 are confirmed real bugs with issue tracker citations; CRIT-01/02/06/07 are standard algorithm correctness issues documented in multiple sources |
+| Stack | HIGH | Zero new deps; all patterns confirmed in existing codebase. No unknowns. |
+| Features | HIGH | Paper is precise (KDD 2017, widely cited). Algorithm steps are unambiguous. MVP scope is conservative and well-bounded. |
+| Architecture | HIGH | Existing codebase patterns are directly reusable. Interface design follows established precedent. Persona graph data structure decision confirmed correct. |
+| Pitfalls | HIGH | 9 critical pitfalls identified with concrete prevention code and warning signs. All are detectable by unit assertions; none require architectural redesign to fix. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **NMI accuracy thresholds:** The FEATURES.md recommends NMI ≥ 0.90 on Football with default parameters, but notes MEDIUM confidence because this varies by seed. The exact threshold to assert in CI needs a calibration run before being hardcoded.
-- **Directed graph ΔQ (CRIT-07):** PROJECT.md confirms directed graphs are in scope, but the directed modularity formula requires separate out/in-degree tracking. Research covers the formula but implementation complexity is not yet estimated — flag for Phase 1 planning.
-- **`g.Edges()` API existence:** The `totalWeight` fix (CRIT-02) assumes `g.Edges()` returns unique edges. Verify that the existing `graph.go` exposes this or plan to add it in Phase 1.
-
----
+- **Omega index threshold calibration:** Correct threshold values for Karate Club, Football, and Polbooks accuracy gates are not yet known. Determine empirically once Phase 4 delivers working results, then harden as test constants. Do not set speculatively.
+- **Algorithm 2 edge-wiring performance at high degree:** The `commInEgoNet[u][v]` lookup table is O(N * avg_degree) in memory — acceptable at avg_degree 20 and N 10K (~200K entries). For avg_degree > 100, this becomes a memory concern. Flag for profiling in Phase 5 benchmarks.
+- **Persona graph size bounds on adversarial inputs:** The paper reports 2–3x node expansion on social graphs. Adversarial inputs can push expansion toward O(|E|). The `MinEgoNetSize` option partially mitigates this; validate empirically during Phase 3 on a star-topology benchmark.
+- **Overlapping NMI (McDaid 2011) deferred:** If accuracy reporting requirements increase post-v1.2, `overlapNMI` (NMI_max formulation) must be implemented before any public API claims NMI as a quality metric.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Traag et al., *Scientific Reports* 2019 — Leiden algorithm, refinement phase, connectivity guarantee
-- gonum/gonum issue #1488 — confirmed infinite-loop bug from tiny ΔQ
-- Sotera spark-distributed-louvain issue #1 — k_i_in self-loop cross-implementation confirmation
-- go.dev/blog/testing-b-loop — Go 1.24 `b.Loop()` guidance
-- pkg.go.dev/gonum.org/v1/gonum/graph/community — confirmed Louvain only, no Leiden (2025-12-29)
-- Fortunato & Barthélemy, *PNAS* 2007 — resolution limit theorem
+- Epasto, A., Lattanzi, S., Paes Leme, R. — "Ego-Splitting Framework: from Non-Overlapping to Overlapping Clusters." KDD 2017. arxiv:1707.04692 — Algorithms 1, 2, 3; persona graph definition; ego-net (egoless) definition
+- Existing `package graph` codebase — `graph.go`, `detector.go`, `louvain.go`, `leiden.go`, `louvain_state.go`, `leiden_state.go` — confirmed API contracts and reuse points
+- Go 1.26.1 stdlib — `slices`, `maps`, `sync`, `math/rand` — all available in go.mod; zero new imports needed
 
 ### Secondary (MEDIUM confidence)
-- arxiv 2402.11454 (2024) — selective Leiden refinement disconnection bug
-- arxiv 2312.04876 — GVE-Louvain neighbor accumulator structure (abstract only)
-- Neo4j GDS, NetworkX, Graphology docs — interface pattern evidence
-- Microsoft GraphRAG discussions — sparse graph non-reproducibility observation
+- Collins, L.M., Dent, C.W. (1988). "Omega: A general formulation of the Rand Index." Multivariate Behavioral Research 23.2 — Omega index original definition
+- Gregory, S. (2011). "Fuzzy overlapping communities in networks." Journal of Statistical Mechanics — Omega index adapted for overlapping communities
+- Lancichinetti, A., Fortunato, S. (2009). "Benchmarks for testing community detection algorithms." Physical Review E 80 — LFR overlapping benchmark; overlapping NMI
 
 ### Tertiary (LOW confidence)
-- louvain-igraph docs — default parameter values (MaxMoves=10, Tolerance=1e-7); cross-check with own calibration runs
+- McDaid, A.F., Greene, D., Hurley, N. (2011). "Normalized Mutual Information to Evaluate Overlapping Community Finding Algorithms." arXiv:1110.2515 — NMI_max formulation; deferred to post-v1.2; not yet validated against an implementation
 
 ---
-
-*Research completed: 2026-03-29*
+*Research completed: 2026-03-30*
 *Ready for roadmap: yes*
