@@ -3,6 +3,7 @@ package graph
 import (
 	"errors"
 	"runtime"
+	"sort"
 	"sync"
 )
 
@@ -62,9 +63,15 @@ type GraphDelta struct {
 }
 
 // OnlineOverlappingCommunityDetector extends OverlappingCommunityDetector with
-// incremental Update support for append-only graph mutations.
+// warm-start and incremental Update support for append-only graph mutations.
 type OnlineOverlappingCommunityDetector interface {
 	OverlappingCommunityDetector
+	// DetectWithPrior runs a full rebuild of the persona graph but warm-starts
+	// the GlobalDetector using priorNodeCommunities (NodeID -> community indices).
+	// Use this when you have a prior community assignment from a previous run
+	// (e.g. on a similar graph) and want to bias detection toward it.
+	// For incremental updates to the same graph, prefer Update().
+	DetectWithPrior(g *Graph, priorNodeCommunities map[NodeID][]int) (OverlappingCommunityResult, error)
 	Update(g *Graph, delta GraphDelta, prior OverlappingCommunityResult) (OverlappingCommunityResult, error)
 }
 
@@ -134,65 +141,111 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 		return OverlappingCommunityResult{}, err
 	}
 
-	// Step 3: Map persona communities back to original nodes (Algorithm 3).
-	nodeCommunities := mapPersonasToOriginal(globalResult.Partition, inverseMap)
-
-	// Step 4: Deduplicate community IDs per node.
-	// mapPersonasToOriginal can emit duplicate community IDs when multiple
-	// personas of the same original node land in the same global community.
-	for node, comms := range nodeCommunities {
-		seen := make(map[int]struct{}, len(comms))
-		unique := comms[:0]
-		for _, c := range comms {
-			if _, ok := seen[c]; !ok {
-				seen[c] = struct{}{}
-				unique = append(unique, c)
-			}
-		}
-		nodeCommunities[node] = unique
-	}
-
-	// Step 5: Build Communities [][]NodeID from NodeCommunities.
-	// First pass: find max community ID to size the slice.
-	maxComm := -1
-	for _, comms := range nodeCommunities {
-		for _, c := range comms {
-			if c > maxComm {
-				maxComm = c
-			}
-		}
-	}
-
-	communities := make([][]NodeID, maxComm+1)
-	for node, comms := range nodeCommunities {
-		for _, c := range comms {
-			communities[c] = append(communities[c], node)
-		}
-	}
-
-	// Compact: remove empty community slots (global detector may produce sparse IDs).
-	var filtered [][]NodeID
-	commRemap := make(map[int]int) // old index -> new contiguous index
-	for i, members := range communities {
-		if len(members) > 0 {
-			commRemap[i] = len(filtered)
-			filtered = append(filtered, members)
-		}
-	}
-
-	// Remap NodeCommunities indices to match compacted Communities slice.
-	for node, comms := range nodeCommunities {
-		remapped := make([]int, len(comms))
-		for j, c := range comms {
-			remapped[j] = commRemap[c]
-		}
-		nodeCommunities[node] = remapped
-	}
+	// Steps 3-5: map personas back, deduplicate, and compact.
+	filtered, nodeCommunities := compactCommunities(globalResult.Partition, inverseMap)
 
 	return OverlappingCommunityResult{
-		Communities:     filtered,
-		NodeCommunities: nodeCommunities,
-		// Carry-forward fields for incremental Update() in Phase 11-02.
+		Communities:      filtered,
+		NodeCommunities:  nodeCommunities,
+		personaOf:        personaOf,
+		inverseMap:       inverseMap,
+		partitions:       partitions,
+		personaPartition: globalResult.Partition,
+		personaGraph:     personaGraph,
+	}, nil
+}
+
+// DetectWithPrior runs the Ego Splitting algorithm on g with a warm-started
+// GlobalDetector. The persona graph is rebuilt from scratch (full rebuild),
+// but the GlobalDetector receives an initial partition derived from
+// priorNodeCommunities (original NodeID → list of prior community indices).
+//
+// Warm-start projection: for each original node v, the local-community keys
+// produced by LocalDetector are sorted and mapped positionally onto
+// priorNodeCommunities[v] via modulo (key[i] → prior[i % len(prior)]). Because
+// LocalDetector community IDs are opaque integers that may not be 0-based or
+// contiguous, the mapping is performed on the sorted key order to ensure
+// determinism. Nodes absent from priorNodeCommunities receive fresh singleton
+// community IDs.
+//
+// priorNodeCommunities should originate from a previous detector run on a
+// structurally identical or very similar graph (e.g. after incremental node
+// additions). Using a prior from a structurally different graph may degrade
+// rather than improve GlobalDetector convergence, because community IDs are
+// graph-run-specific integers with no cross-graph meaning.
+//
+// If priorNodeCommunities is nil or empty, falls back to Detect().
+func (d *egoSplittingDetector) DetectWithPrior(
+	g *Graph,
+	priorNodeCommunities map[NodeID][]int,
+) (OverlappingCommunityResult, error) {
+	if len(priorNodeCommunities) == 0 {
+		return d.Detect(g)
+	}
+	if g.IsDirected() {
+		return OverlappingCommunityResult{}, ErrDirectedNotSupported
+	}
+	if g.NodeCount() == 0 {
+		return OverlappingCommunityResult{}, ErrEmptyGraph
+	}
+
+	// Step 1: Full persona graph rebuild (same as Detect).
+	personaGraph, personaOf, inverseMap, partitions, err := buildPersonaGraph(g, d.opts.LocalDetector)
+	if err != nil {
+		return OverlappingCommunityResult{}, err
+	}
+
+	// Step 2: Project priorNodeCommunities onto persona nodes to build a
+	// warm-start partition for GlobalDetector.
+	//
+	// For each original node v, iterate its personas (keyed by local community
+	// index). Assign persona i the prior community priorNodeCommunities[v][i%m].
+	warmPartition := make(map[NodeID]int, len(inverseMap))
+	for v, commPersonas := range personaOf {
+		priorComms, hasPrior := priorNodeCommunities[v]
+		if !hasPrior || len(priorComms) == 0 {
+			continue // handled below as singletons
+		}
+		// Sort local-community keys for deterministic positional mapping;
+		// LocalDetector IDs are opaque integers that may be non-contiguous.
+		localKeys := make([]int, 0, len(commPersonas))
+		for lc := range commPersonas {
+			localKeys = append(localKeys, lc)
+		}
+		sort.Ints(localKeys)
+		for i, lc := range localKeys {
+			warmPartition[commPersonas[lc]] = priorComms[i%len(priorComms)]
+		}
+	}
+	// Assign fresh singleton IDs to personas with no prior coverage.
+	maxCommID := -1
+	for _, c := range warmPartition {
+		if c > maxCommID {
+			maxCommID = c
+		}
+	}
+	for _, commPersonas := range personaOf {
+		for _, personaID := range commPersonas {
+			if _, assigned := warmPartition[personaID]; !assigned {
+				maxCommID++
+				warmPartition[personaID] = maxCommID
+			}
+		}
+	}
+
+	// Step 3: Run warm-started GlobalDetector on persona graph.
+	warmGlobal := warmStartedDetector(d.opts.GlobalDetector, warmPartition)
+	globalResult, err := warmGlobal.Detect(personaGraph)
+	if err != nil {
+		return OverlappingCommunityResult{}, err
+	}
+
+	// Steps 4–5: map back, deduplicate, and compact.
+	filtered, nodeCommunities := compactCommunities(globalResult.Partition, inverseMap)
+
+	return OverlappingCommunityResult{
+		Communities:      filtered,
+		NodeCommunities:  nodeCommunities,
 		personaOf:        personaOf,
 		inverseMap:       inverseMap,
 		partitions:       partitions,
@@ -272,52 +325,8 @@ func (d *egoSplittingDetector) Update(
 		globalPartition = globalResult.Partition
 	}
 
-	// Step 4: Map personas back to original nodes (Algorithm 3).
-	nodeCommunities := mapPersonasToOriginal(globalPartition, newInverseMap)
-
-	// Step 4b: Deduplicate community IDs per node (same as Detect).
-	for node, comms := range nodeCommunities {
-		seen := make(map[int]struct{}, len(comms))
-		unique := comms[:0]
-		for _, c := range comms {
-			if _, ok := seen[c]; !ok {
-				seen[c] = struct{}{}
-				unique = append(unique, c)
-			}
-		}
-		nodeCommunities[node] = unique
-	}
-
-	// Step 5: Build Communities [][]NodeID (same as Detect).
-	maxComm := -1
-	for _, comms := range nodeCommunities {
-		for _, c := range comms {
-			if c > maxComm {
-				maxComm = c
-			}
-		}
-	}
-	communities := make([][]NodeID, maxComm+1)
-	for node, comms := range nodeCommunities {
-		for _, c := range comms {
-			communities[c] = append(communities[c], node)
-		}
-	}
-	var filtered [][]NodeID
-	commRemap := make(map[int]int)
-	for i, members := range communities {
-		if len(members) > 0 {
-			commRemap[i] = len(filtered)
-			filtered = append(filtered, members)
-		}
-	}
-	for node, comms := range nodeCommunities {
-		remapped := make([]int, len(comms))
-		for j, c := range comms {
-			remapped[j] = commRemap[c]
-		}
-		nodeCommunities[node] = remapped
-	}
+	// Steps 4-5: map personas back, deduplicate, and compact.
+	filtered, nodeCommunities := compactCommunities(globalPartition, newInverseMap)
 
 	return OverlappingCommunityResult{
 		Communities:      filtered,
@@ -921,6 +930,64 @@ func buildPersonaGraphIncremental(
 	}
 
 	return personaGraph, personaOf, inverseMap, partitions, warmPartition, false, nil
+}
+
+// compactCommunities converts a persona-level global partition into the
+// deduplicated, compacted Communities and NodeCommunities fields used in
+// OverlappingCommunityResult. It is the shared implementation of Steps 4-5
+// across Detect, DetectWithPrior, and Update.
+func compactCommunities(
+	globalPartition map[NodeID]int,
+	inverseMap map[NodeID]NodeID,
+) ([][]NodeID, map[NodeID][]int) {
+	nodeCommunities := mapPersonasToOriginal(globalPartition, inverseMap)
+
+	// Deduplicate community IDs per node.
+	// mapPersonasToOriginal can emit duplicate IDs when multiple personas of the
+	// same original node land in the same global community.
+	for node, comms := range nodeCommunities {
+		seen := make(map[int]struct{}, len(comms))
+		unique := make([]int, 0, len(comms))
+		for _, c := range comms {
+			if _, ok := seen[c]; !ok {
+				seen[c] = struct{}{}
+				unique = append(unique, c)
+			}
+		}
+		nodeCommunities[node] = unique
+	}
+
+	// Build Communities [][]NodeID: find max ID, populate, then compact.
+	maxComm := -1
+	for _, comms := range nodeCommunities {
+		for _, c := range comms {
+			if c > maxComm {
+				maxComm = c
+			}
+		}
+	}
+	communities := make([][]NodeID, maxComm+1)
+	for node, comms := range nodeCommunities {
+		for _, c := range comms {
+			communities[c] = append(communities[c], node)
+		}
+	}
+	var filtered [][]NodeID
+	commRemap := make(map[int]int)
+	for i, members := range communities {
+		if len(members) > 0 {
+			commRemap[i] = len(filtered)
+			filtered = append(filtered, members)
+		}
+	}
+	for node, comms := range nodeCommunities {
+		remapped := make([]int, len(comms))
+		for j, c := range comms {
+			remapped[j] = commRemap[c]
+		}
+		nodeCommunities[node] = remapped
+	}
+	return filtered, nodeCommunities
 }
 
 // mapPersonasToOriginal converts global community assignments on the persona

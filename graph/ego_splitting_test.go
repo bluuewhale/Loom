@@ -820,6 +820,139 @@ func TestDetect_CarryForwardNilFallback(t *testing.T) {
 	}
 }
 
+// --- DetectWithPrior tests ---
+
+// TestDetectWithPrior_EmptyPriorFallsBackToDetect verifies that DetectWithPrior
+// with a nil/empty prior falls back to a normal Detect and produces a valid result.
+func TestDetectWithPrior_EmptyPriorFallsBackToDetect(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+
+	got, err := det.DetectWithPrior(g, nil)
+	if err != nil {
+		t.Fatalf("DetectWithPrior(nil) error: %v", err)
+	}
+	if len(got.Communities) == 0 {
+		t.Error("expected at least one community from nil-prior fallback")
+	}
+	if len(got.NodeCommunities) == 0 {
+		t.Error("expected non-empty NodeCommunities from nil-prior fallback")
+	}
+
+	// Empty map should also fall back.
+	got2, err := det.DetectWithPrior(g, map[NodeID][]int{})
+	if err != nil {
+		t.Fatalf("DetectWithPrior(empty) error: %v", err)
+	}
+	if len(got2.Communities) == 0 {
+		t.Error("expected at least one community from empty-prior fallback")
+	}
+}
+
+// TestDetectWithPrior_DirectedGraphError verifies the directed-graph guard.
+func TestDetectWithPrior_DirectedGraphError(t *testing.T) {
+	g := NewGraph(true)
+	g.AddNode(0, 1.0)
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{})
+	_, err := det.DetectWithPrior(g, map[NodeID][]int{0: {0}})
+	if err != ErrDirectedNotSupported {
+		t.Errorf("expected ErrDirectedNotSupported, got %v", err)
+	}
+}
+
+// TestDetectWithPrior_EmptyGraphError verifies the empty-graph guard.
+func TestDetectWithPrior_EmptyGraphError(t *testing.T) {
+	g := NewGraph(false)
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{})
+	_, err := det.DetectWithPrior(g, map[NodeID][]int{0: {0}})
+	if err != ErrEmptyGraph {
+		t.Errorf("expected ErrEmptyGraph, got %v", err)
+	}
+}
+
+// TestDetectWithPrior_ProducesValidResult verifies that DetectWithPrior returns
+// a valid overlapping community result with carry-forward fields populated.
+func TestDetectWithPrior_ProducesValidResult(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+
+	// First run cold to get a prior.
+	cold, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	// Warm-start with the prior.
+	got, err := det.DetectWithPrior(g, cold.NodeCommunities)
+	if err != nil {
+		t.Fatalf("DetectWithPrior error: %v", err)
+	}
+
+	if len(got.Communities) == 0 {
+		t.Error("expected at least one community")
+	}
+	if len(got.NodeCommunities) == 0 {
+		t.Error("expected non-empty NodeCommunities")
+	}
+	// Carry-forward fields must be populated for subsequent Update calls.
+	if got.personaOf == nil {
+		t.Error("personaOf must be populated")
+	}
+	if got.inverseMap == nil {
+		t.Error("inverseMap must be populated")
+	}
+	if got.partitions == nil {
+		t.Error("partitions must be populated")
+	}
+	if got.personaPartition == nil {
+		t.Error("personaPartition must be populated")
+	}
+	if got.personaGraph == nil {
+		t.Error("personaGraph must be populated")
+	}
+}
+
+// TestDetectWithPrior_ResultUsableByUpdate verifies that the result of
+// DetectWithPrior can be passed to Update without error.
+func TestDetectWithPrior_ResultUsableByUpdate(t *testing.T) {
+	g := buildGraph(testdata.KarateClubEdges)
+	det := NewOnlineEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 42}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 42}),
+	})
+
+	cold, err := det.Detect(g)
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+
+	prior, err := det.DetectWithPrior(g, cold.NodeCommunities)
+	if err != nil {
+		t.Fatalf("DetectWithPrior error: %v", err)
+	}
+
+	// Apply a delta using the DetectWithPrior result as the prior.
+	g.AddNode(34, 1.0)
+	g.AddEdge(0, 34, 1.0)
+	delta := GraphDelta{
+		AddedNodes: []NodeID{34},
+		AddedEdges: []DeltaEdge{{From: 0, To: 34, Weight: 1.0}},
+	}
+	result, err := det.Update(g, delta, prior)
+	if err != nil {
+		t.Fatalf("Update after DetectWithPrior error: %v", err)
+	}
+	if len(result.Communities) == 0 {
+		t.Error("expected at least one community after Update")
+	}
+}
+
 // --- warmStartedDetector tests: ONLINE-07 / Phase 11-01 ---
 
 // TestWarmStartedDetector_Louvain verifies that warmStartedDetector on a
