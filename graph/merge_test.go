@@ -6,7 +6,7 @@ func TestMergeOptions_InvalidMinSize(t *testing.T) {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
 	result := CommunityResult{Partition: map[NodeID]int{0: 0, 1: 1}, Modularity: 0}
-	_, err := MergeSmallCommunities(g, result, MergeOptions{MinSize: -1})
+	_, err := MergeCommunities(g, result, MergeOptions{MinSize: -1})
 	if err != ErrInvalidMergeOptions {
 		t.Fatalf("expected ErrInvalidMergeOptions, got %v", err)
 	}
@@ -16,20 +16,20 @@ func TestMergeOptions_InvalidMinFraction(t *testing.T) {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
 	result := CommunityResult{Partition: map[NodeID]int{0: 0, 1: 1}, Modularity: 0}
-	_, err := MergeSmallCommunities(g, result, MergeOptions{MinFraction: 1.5})
+	_, err := MergeCommunities(g, result, MergeOptions{MinFraction: 1.5})
 	if err != ErrInvalidMergeOptions {
 		t.Fatalf("expected ErrInvalidMergeOptions, got %v", err)
 	}
 }
 
-func TestMergeSmallCommunities_NoOp_ZeroThreshold(t *testing.T) {
+func TestMergeCommunities_NoOp_ZeroThreshold(t *testing.T) {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
 	g.AddEdge(1, 2, 1.0)
 	partition := map[NodeID]int{0: 0, 1: 0, 2: 1}
 	result := CommunityResult{Partition: partition, Modularity: 0.1}
 
-	got, err := MergeSmallCommunities(g, result, MergeOptions{})
+	got, err := MergeCommunities(g, result, MergeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,20 +41,20 @@ func TestMergeSmallCommunities_NoOp_ZeroThreshold(t *testing.T) {
 	}
 }
 
-func TestMergeSmallCommunities_PartitionMismatch(t *testing.T) {
+func TestMergeCommunities_PartitionMismatch(t *testing.T) {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
 	// node 99 is not in g
 	partition := map[NodeID]int{0: 0, 1: 1, 99: 2}
 	result := CommunityResult{Partition: partition}
 
-	_, err := MergeSmallCommunities(g, result, MergeOptions{MinSize: 1})
+	_, err := MergeCommunities(g, result, MergeOptions{MinSize: 1})
 	if err != ErrPartitionGraphMismatch {
 		t.Fatalf("expected ErrPartitionGraphMismatch, got %v", err)
 	}
 }
 
-func TestMergeSmallCommunities_NoCandidates(t *testing.T) {
+func TestMergeCommunities_NoCandidates(t *testing.T) {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
 	g.AddEdge(1, 2, 1.0)
@@ -63,7 +63,7 @@ func TestMergeSmallCommunities_NoCandidates(t *testing.T) {
 	partition := map[NodeID]int{0: 0, 1: 0, 2: 1, 3: 1}
 	result := CommunityResult{Partition: partition}
 
-	got, err := MergeSmallCommunities(g, result, MergeOptions{MinSize: 2})
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,10 +72,10 @@ func TestMergeSmallCommunities_NoCandidates(t *testing.T) {
 	}
 }
 
-// TestMergeSmallCommunities_StarGraph verifies that leaf-node singleton
+// TestMergeCommunities_StarGraph verifies that leaf-node singleton
 // communities (the canonical STAR-graph fragmentation) are absorbed into the
 // hub community.
-func TestMergeSmallCommunities_StarGraph(t *testing.T) {
+func TestMergeCommunities_StarGraph(t *testing.T) {
 	// Star: hub=0, leaves=1,2,3. Initial partition: hub alone + each leaf alone.
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
@@ -84,7 +84,7 @@ func TestMergeSmallCommunities_StarGraph(t *testing.T) {
 	partition := map[NodeID]int{0: 0, 1: 1, 2: 2, 3: 3}
 	result := CommunityResult{Partition: partition}
 
-	got, err := MergeSmallCommunities(g, result, MergeOptions{MinSize: 2})
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestMergeSmallCommunities_StarGraph(t *testing.T) {
 	}
 }
 
-func TestMergeSmallCommunities_MinFraction(t *testing.T) {
+func TestMergeCommunities_MinFraction(t *testing.T) {
 	// 10 nodes: 8 in comm 0, 2 in comm 1. MinFraction=0.3 → threshold=3 → comm 1 merges.
 	g := NewGraph(false)
 	for i := 0; i < 8; i++ {
@@ -113,7 +113,7 @@ func TestMergeSmallCommunities_MinFraction(t *testing.T) {
 	partition[9] = 1
 	result := CommunityResult{Partition: partition}
 
-	got, err := MergeSmallCommunities(g, result, MergeOptions{MinFraction: 0.3})
+	got, err := MergeCommunities(g, result, MergeOptions{MinFraction: 0.3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestMergeSmallCommunities_MinFraction(t *testing.T) {
 	}
 }
 
-func TestMergeSmallCommunities_IsolatedSmallCommunity(t *testing.T) {
+func TestMergeCommunities_IsolatedSmallCommunity(t *testing.T) {
 	// Community 1 has no edges to community 0 → must not be merged (left in place).
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
@@ -130,7 +130,7 @@ func TestMergeSmallCommunities_IsolatedSmallCommunity(t *testing.T) {
 	partition := map[NodeID]int{0: 0, 1: 0, 2: 1}
 	result := CommunityResult{Partition: partition}
 
-	got, err := MergeSmallCommunities(g, result, MergeOptions{MinSize: 2})
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestMergeSmallCommunities_IsolatedSmallCommunity(t *testing.T) {
 	}
 }
 
-func TestMergeSmallCommunities_ModularityStrategy(t *testing.T) {
+func TestMergeCommunities_ModularityStrategy(t *testing.T) {
 	// Small community: node 0 (comm 0, size 1)
 	// Target A: nodes 1,2,3 (comm 1) — 2 edges to node 0
 	// Target B: nodes 4,5,6,7,8,9 (comm 2) — 1 edge to node 0
@@ -163,7 +163,7 @@ func TestMergeSmallCommunities_ModularityStrategy(t *testing.T) {
 	}
 	result := CommunityResult{Partition: partition}
 
-	got, err := MergeSmallCommunities(g, result, MergeOptions{MinSize: 2, Strategy: MergeByModularity})
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2, Strategy: MergeByModularity})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestMergeSmallCommunities_ModularityStrategy(t *testing.T) {
 	}
 }
 
-func TestMergeSmallOverlappingCommunities_BasicUnion(t *testing.T) {
+func TestMergeOverlappingCommunities_BasicUnion(t *testing.T) {
 	// Comm 0: {0,1,2}, Comm 1: {3} (size 1 < threshold 2)
 	// Node 3 has an edge to node 2 (comm 0) but no shared membership with comm 0.
 	// → Comm 1 should be merged into Comm 0 via connectivity fallback.
@@ -194,7 +194,7 @@ func TestMergeSmallOverlappingCommunities_BasicUnion(t *testing.T) {
 		},
 	}
 
-	got, err := MergeSmallOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
+	got, err := MergeOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestMergeSmallOverlappingCommunities_BasicUnion(t *testing.T) {
 	}
 }
 
-func TestMergeSmallOverlappingCommunities_NodeCommunitiesConsistency(t *testing.T) {
+func TestMergeOverlappingCommunities_NodeCommunitiesConsistency(t *testing.T) {
 	// After merge, NodeCommunities must accurately reflect Communities.
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
@@ -220,7 +220,7 @@ func TestMergeSmallOverlappingCommunities_NodeCommunitiesConsistency(t *testing.
 		},
 	}
 
-	got, err := MergeSmallOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
+	got, err := MergeOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,14 +241,14 @@ func TestMergeSmallOverlappingCommunities_NodeCommunitiesConsistency(t *testing.
 	}
 }
 
-func TestMergeSmallOverlappingCommunities_NoOp(t *testing.T) {
+func TestMergeOverlappingCommunities_NoOp(t *testing.T) {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
 	result := OverlappingCommunityResult{
 		Communities:     [][]NodeID{{0, 1}},
 		NodeCommunities: map[NodeID][]int{0: {0}, 1: {0}},
 	}
-	got, err := MergeSmallOverlappingCommunities(g, result, MergeOptions{})
+	got, err := MergeOverlappingCommunities(g, result, MergeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestMergeSmallOverlappingCommunities_NoOp(t *testing.T) {
 	}
 }
 
-func ExampleMergeSmallCommunities() {
+func ExampleMergeCommunities() {
 	g := NewGraph(false)
 	g.AddEdge(0, 1, 1.0)
 	g.AddEdge(0, 2, 1.0)
@@ -268,7 +268,7 @@ func ExampleMergeSmallCommunities() {
 		Partition: map[NodeID]int{0: 0, 1: 1, 2: 2, 3: 3},
 	}
 
-	merged, err := MergeSmallCommunities(g, detected, MergeOptions{MinSize: 2})
+	merged, err := MergeCommunities(g, detected, MergeOptions{MinSize: 2})
 	if err != nil {
 		panic(err)
 	}

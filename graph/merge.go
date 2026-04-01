@@ -75,7 +75,7 @@ type candidate struct {
 	size int
 }
 
-// MergeSmallCommunities post-processes a disjoint partition by absorbing
+// MergeCommunities post-processes a disjoint partition by absorbing
 // communities that satisfy the MinSize or MinFraction threshold into their
 // best neighbour according to Strategy. Community IDs in the returned result
 // are re-numbered to be contiguous. Modularity is recomputed on the merged
@@ -83,7 +83,7 @@ type candidate struct {
 //
 // Returns the input result unchanged when no merge threshold is set
 // (MinSize==0 and MinFraction==0) or no communities qualify.
-func MergeSmallCommunities(g *Graph, result CommunityResult, opts MergeOptions) (CommunityResult, error) {
+func MergeCommunities(g *Graph, result CommunityResult, opts MergeOptions) (CommunityResult, error) {
 	if err := validateMergeOptions(opts); err != nil {
 		return CommunityResult{}, err
 	}
@@ -249,7 +249,7 @@ func bestByModularity(g *Graph, neighborWeight map[int]float64, srcNodes []NodeI
 	return best, true
 }
 
-// MergeSmallOverlappingCommunities post-processes an overlapping partition by
+// MergeOverlappingCommunities post-processes an overlapping partition by
 // absorbing communities below the threshold into the neighbour with the most
 // shared-node overlap. NodeCommunities is rebuilt to be consistent with the
 // merged Communities slice.
@@ -257,7 +257,7 @@ func bestByModularity(g *Graph, neighborWeight map[int]float64, srcNodes []NodeI
 // The caller must ensure each Communities[i] slice contains no duplicate NodeIDs,
 // as produced by EgoSplitting. Duplicate members will cause incorrect size
 // calculations and union behaviour.
-func MergeSmallOverlappingCommunities(g *Graph, result OverlappingCommunityResult, opts MergeOptions) (OverlappingCommunityResult, error) {
+func MergeOverlappingCommunities(g *Graph, result OverlappingCommunityResult, opts MergeOptions) (OverlappingCommunityResult, error) {
 	if err := validateMergeOptions(opts); err != nil {
 		return OverlappingCommunityResult{}, err
 	}
