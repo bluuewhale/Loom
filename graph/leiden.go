@@ -238,6 +238,10 @@ func refinePartition(g *Graph, partition map[NodeID]int) map[NodeID]int {
 	refined := make(map[NodeID]int, len(partition))
 	nextID := 0
 
+	// queue is declared outside the outer loop so its backing array is reused
+	// across communities, avoiding a new slice allocation per BFS.
+	var queue []NodeID
+
 	for _, comm := range commIDs {
 		nodes := commNodes[comm]
 		// Build node-set for O(1) intra-community neighbor filtering.
@@ -252,11 +256,14 @@ func refinePartition(g *Graph, partition map[NodeID]int) map[NodeID]int {
 				continue
 			}
 			// BFS: only traverse edges where the neighbor is in the same community.
-			queue := []NodeID{start}
+			// Cursor-based dequeue avoids backing-array abandonment from queue[1:] slicing.
+			queue = queue[:0]
+			queue = append(queue, start)
 			visited[start] = true
-			for len(queue) > 0 {
-				cur := queue[0]
-				queue = queue[1:]
+			head := 0
+			for head < len(queue) {
+				cur := queue[head]
+				head++
 				refined[cur] = nextID
 				for _, e := range g.Neighbors(cur) {
 					if e.To == cur {

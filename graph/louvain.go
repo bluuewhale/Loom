@@ -289,11 +289,14 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 		}
 	}
 
-	// Accumulate inter-community edge weights using canonical (min,max) key to avoid double-counting.
+	// Accumulate inter-community edge weights using canonical (min,max) super-node key.
+	// Both directions of each undirected edge are visited; divide accumulated weight by 2
+	// when writing so each edge appears once at the correct weight.
+	// Maps are pre-sized to reduce rehash overhead.
 	type edgeKey struct{ a, b NodeID }
-	interEdges := make(map[edgeKey]float64)
+	interEdges := make(map[edgeKey]float64, g.EdgeCount())
 	// Intra-community edges become self-loops on the supernode.
-	selfLoops := make(map[NodeID]float64)
+	selfLoops := make(map[NodeID]float64, len(commList))
 
 	for _, n := range g.Nodes() {
 		superN := commToSuper[partition[n]]
@@ -303,7 +306,7 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 				// Each undirected intra-community edge appears in adjacency from both endpoints.
 				selfLoops[superN] += e.Weight
 			} else {
-				// Canonicalize key so (a,b) and (b,a) are the same.
+				// Canonicalize key so (a,b) and (b,a) map to the same entry.
 				a, b := superN, superNeighbor
 				if a > b {
 					a, b = b, a
@@ -316,14 +319,31 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 	newGraph := NewGraph(false)
 
 	// Self-loops: each undirected intra-edge counted twice in adjacency → divide by 2.
-	for super, w := range selfLoops {
-		newGraph.AddEdge(super, super, w/2.0)
+	// Write in sorted supernode order for deterministic adjacency layout.
+	selfLoopNodes := make([]NodeID, 0, len(selfLoops))
+	for super := range selfLoops {
+		selfLoopNodes = append(selfLoopNodes, super)
+	}
+	slices.Sort(selfLoopNodes)
+	for _, super := range selfLoopNodes {
+		newGraph.AddEdge(super, super, selfLoops[super]/2.0)
 	}
 
 	// Inter-community edges: each undirected edge between communities was counted from both
 	// endpoints (a→b and b→a), so divide accumulated weight by 2.
-	for key, w := range interEdges {
-		newGraph.AddEdge(key.a, key.b, w/2.0)
+	// Write in sorted key order for deterministic adjacency layout.
+	interKeys := make([]edgeKey, 0, len(interEdges))
+	for key := range interEdges {
+		interKeys = append(interKeys, key)
+	}
+	slices.SortFunc(interKeys, func(x, y edgeKey) int {
+		if x.a != y.a {
+			return int(x.a) - int(y.a)
+		}
+		return int(x.b) - int(y.b)
+	})
+	for _, key := range interKeys {
+		newGraph.AddEdge(key.a, key.b, interEdges[key]/2.0)
 	}
 
 	// Ensure all supernodes exist even if isolated (no edges).
