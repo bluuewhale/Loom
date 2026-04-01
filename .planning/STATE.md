@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 03-01-PLAN.md — counting sort + CSR BFS adjacency: Leiden 10K 60.4ms→59.1ms
-last_updated: "2026-04-01T18:30:00.000Z"
+stopped_at: "Completed 03-01-PLAN.md — counting sort + CSR BFS adjacency: Leiden 10K 60.4ms→59.1ms (−2.2%)"
+last_updated: "2026-04-01T10:16:32.035Z"
 last_activity: 2026-04-01
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 8
+  completed_plans: 8
   percent: 0
 ---
 
@@ -21,12 +21,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 01 — optimize-graph-core
+**Current focus:** Phase 03 — leiden-bfs-refinement-speed-linear-grouping-csr-adjacency
 
 ## Current Position
 
-Phase: 1
-Plan: Not started
+Phase: 03 (leiden-bfs-refinement-speed-linear-grouping-csr-adjacency) — EXECUTING
+Plan: 1 of 1
 Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
@@ -75,6 +75,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 01-optimize-graph-core P03 | 30 | 2 tasks | 4 files |
 | Phase 01 P04 | 25 | 2 tasks | 2 files |
 | Phase 02-leiden-pcg P01 | 20 | 3 tasks | 2 files |
+| Phase 03-leiden-bfs-refinement-speed-linear-grouping-csr-adjacency P01 | 15 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,7 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 01-optimize-graph-core]: ROADMAP allocs/op target revised to <=50500 (measured ~45880 avg + 10% margin); ns/op target to >=10% (measured 11.7% = 63.5ms->56.1ms)
 - [Phase 02-leiden-pcg]: refinePartitionInPlace: CSR-indexed []bool scratch + sorted commNodePairs eliminates all per-community inComm/visited map allocs; Leiden 10K 58220→45938 allocs/op (−21%), now at Louvain parity; LeidenWarmStart 6955→5382 allocs/op (−23%)
 - [Phase 03-leiden-bfs-speed]: counting sort replaces slices.SortFunc (O(N) vs O(N log N)); BFS queue stores int32 CSR indices for csr.adjByIdx[] direct access; bounds assertion on commCountScratch; Leiden 10K 60.4ms→59.1ms (−2.2%)
+- [Phase 03-leiden-bfs-refinement-speed-linear-grouping-csr-adjacency]: Counting sort with commSeenComms sparse reset replaces slices.SortFunc — O(N) vs O(N log N); int32 CSR BFS queue eliminates mapaccess2_fast64 per dequeue; bounds panic on commCountScratch guards [0,N) invariant; Leiden 10K 60.4ms→59.1ms (−2.2%)
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -161,7 +163,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-04-01T06:35:35.139Z
-Stopped at: Completed 01-04-PLAN.md — PCG benchmark seed calibration + ROADMAP target update
+Last session: 2026-04-01T10:16:32.020Z
+Stopped at: Completed 03-01-PLAN.md — counting sort + CSR BFS adjacency: Leiden 10K 60.4ms→59.1ms (−2.2%)
 Resume file: None
 Next action: `/gsd:verify-work 12`
