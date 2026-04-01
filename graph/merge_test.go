@@ -171,4 +171,9 @@ func TestMergeSmallCommunities_ModularityStrategy(t *testing.T) {
 	if uniqueCommunities(got.Partition) != 2 {
 		t.Fatalf("expected 2 communities after merge, got %d", uniqueCommunities(got.Partition))
 	}
+	// Verify node 0 merged into comm 1 (nodes 1-3), not comm 2 (nodes 4-9).
+	// ΔQ for merge into comm 1 = -0.02 > ΔQ for comm 2 = -0.46.
+	if got.Partition[0] != got.Partition[1] {
+		t.Fatalf("expected node 0 to merge into community containing node 1, got partition %v", got.Partition)
+	}
 }
