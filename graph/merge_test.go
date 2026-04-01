@@ -1,0 +1,277 @@
+package graph
+
+import "testing"
+
+func TestMergeOptions_InvalidMinSize(t *testing.T) {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	result := CommunityResult{Partition: map[NodeID]int{0: 0, 1: 1}, Modularity: 0}
+	_, err := MergeCommunities(g, result, MergeOptions{MinSize: -1})
+	if err != ErrInvalidMergeOptions {
+		t.Fatalf("expected ErrInvalidMergeOptions, got %v", err)
+	}
+}
+
+func TestMergeOptions_InvalidMinFraction(t *testing.T) {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	result := CommunityResult{Partition: map[NodeID]int{0: 0, 1: 1}, Modularity: 0}
+	_, err := MergeCommunities(g, result, MergeOptions{MinFraction: 1.5})
+	if err != ErrInvalidMergeOptions {
+		t.Fatalf("expected ErrInvalidMergeOptions, got %v", err)
+	}
+}
+
+func TestMergeCommunities_NoOp_ZeroThreshold(t *testing.T) {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(1, 2, 1.0)
+	partition := map[NodeID]int{0: 0, 1: 0, 2: 1}
+	result := CommunityResult{Partition: partition, Modularity: 0.1}
+
+	got, err := MergeCommunities(g, result, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Partition) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(got.Partition))
+	}
+	if uniqueCommunities(got.Partition) != 2 {
+		t.Fatalf("expected 2 communities (no-op), got %d", uniqueCommunities(got.Partition))
+	}
+}
+
+func TestMergeCommunities_PartitionMismatch(t *testing.T) {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	// node 99 is not in g
+	partition := map[NodeID]int{0: 0, 1: 1, 99: 2}
+	result := CommunityResult{Partition: partition}
+
+	_, err := MergeCommunities(g, result, MergeOptions{MinSize: 1})
+	if err != ErrPartitionGraphMismatch {
+		t.Fatalf("expected ErrPartitionGraphMismatch, got %v", err)
+	}
+}
+
+func TestMergeCommunities_NoCandidates(t *testing.T) {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(1, 2, 1.0)
+	g.AddEdge(2, 3, 1.0)
+	// All communities size >= 2, threshold = 2 → no candidates
+	partition := map[NodeID]int{0: 0, 1: 0, 2: 1, 3: 1}
+	result := CommunityResult{Partition: partition}
+
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uniqueCommunities(got.Partition) != 2 {
+		t.Fatalf("expected 2 communities, got %d", uniqueCommunities(got.Partition))
+	}
+}
+
+// TestMergeCommunities_StarGraph verifies that leaf-node singleton
+// communities (the canonical STAR-graph fragmentation) are absorbed into the
+// hub community.
+func TestMergeCommunities_StarGraph(t *testing.T) {
+	// Star: hub=0, leaves=1,2,3. Initial partition: hub alone + each leaf alone.
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(0, 2, 1.0)
+	g.AddEdge(0, 3, 1.0)
+	partition := map[NodeID]int{0: 0, 1: 1, 2: 2, 3: 3}
+	result := CommunityResult{Partition: partition}
+
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// All leaves should merge into hub's community → 1 community total.
+	if uniqueCommunities(got.Partition) != 1 {
+		t.Fatalf("expected 1 community, got %d", uniqueCommunities(got.Partition))
+	}
+}
+
+func TestMergeCommunities_MinFraction(t *testing.T) {
+	// 10 nodes: 8 in comm 0, 2 in comm 1. MinFraction=0.3 → threshold=3 → comm 1 merges.
+	g := NewGraph(false)
+	for i := 0; i < 8; i++ {
+		g.AddEdge(NodeID(i), NodeID((i+1)%8), 1.0)
+	}
+	// Bridge between the two clusters
+	g.AddEdge(0, 8, 1.0)
+	g.AddEdge(0, 9, 1.0)
+	g.AddEdge(8, 9, 1.0)
+
+	partition := map[NodeID]int{}
+	for i := 0; i < 8; i++ {
+		partition[NodeID(i)] = 0
+	}
+	partition[8] = 1
+	partition[9] = 1
+	result := CommunityResult{Partition: partition}
+
+	got, err := MergeCommunities(g, result, MergeOptions{MinFraction: 0.3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uniqueCommunities(got.Partition) != 1 {
+		t.Fatalf("expected 1 community after MinFraction merge, got %d", uniqueCommunities(got.Partition))
+	}
+}
+
+func TestMergeCommunities_IsolatedSmallCommunity(t *testing.T) {
+	// Community 1 has no edges to community 0 → must not be merged (left in place).
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddNode(2, 1.0) // isolated node in its own community
+	partition := map[NodeID]int{0: 0, 1: 0, 2: 1}
+	result := CommunityResult{Partition: partition}
+
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Community 1 is isolated — stays at 2 communities.
+	if uniqueCommunities(got.Partition) != 2 {
+		t.Fatalf("expected 2 communities (isolated kept), got %d", uniqueCommunities(got.Partition))
+	}
+}
+
+func TestMergeCommunities_ModularityStrategy(t *testing.T) {
+	// Small community: node 0 (comm 0, size 1)
+	// Target A: nodes 1,2,3 (comm 1) — 2 edges to node 0
+	// Target B: nodes 4,5,6,7,8,9 (comm 2) — 1 edge to node 0
+	// With MergeByModularity, node 0 should prefer comm 1 (higher ΔQ from connectivity).
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(0, 2, 1.0)
+	g.AddEdge(1, 2, 1.0)
+	g.AddEdge(1, 3, 1.0)
+	g.AddEdge(0, 4, 1.0)
+	for i := 4; i < 9; i++ {
+		g.AddEdge(NodeID(i), NodeID(i+1), 1.0)
+	}
+	partition := map[NodeID]int{0: 0}
+	for i := 1; i <= 3; i++ {
+		partition[NodeID(i)] = 1
+	}
+	for i := 4; i <= 9; i++ {
+		partition[NodeID(i)] = 2
+	}
+	result := CommunityResult{Partition: partition}
+
+	got, err := MergeCommunities(g, result, MergeOptions{MinSize: 2, Strategy: MergeByModularity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Node 0 merged somewhere → 2 communities total.
+	if uniqueCommunities(got.Partition) != 2 {
+		t.Fatalf("expected 2 communities after merge, got %d", uniqueCommunities(got.Partition))
+	}
+	// Verify node 0 merged into comm 1 (nodes 1-3), not comm 2 (nodes 4-9).
+	// ΔQ for merge into comm 1 ≈ +0.04 > ΔQ for comm 2 ≈ -0.46.
+	if got.Partition[0] != got.Partition[1] {
+		t.Fatalf("expected node 0 to merge into community containing node 1, got partition %v", got.Partition)
+	}
+}
+
+func TestMergeOverlappingCommunities_BasicUnion(t *testing.T) {
+	// Comm 0: {0,1,2}, Comm 1: {3} (size 1 < threshold 2)
+	// Node 3 has an edge to node 2 (comm 0) but no shared membership with comm 0.
+	// → Comm 1 should be merged into Comm 0 via connectivity fallback.
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(1, 2, 1.0)
+	g.AddEdge(2, 3, 1.0)
+
+	result := OverlappingCommunityResult{
+		Communities: [][]NodeID{{0, 1, 2}, {3}},
+		NodeCommunities: map[NodeID][]int{
+			0: {0}, 1: {0}, 2: {0}, 3: {1},
+		},
+	}
+
+	got, err := MergeOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Communities) != 1 {
+		t.Fatalf("expected 1 community, got %d", len(got.Communities))
+	}
+	if len(got.Communities[0]) != 4 {
+		t.Fatalf("expected 4 nodes in community 0, got %d", len(got.Communities[0]))
+	}
+}
+
+func TestMergeOverlappingCommunities_NodeCommunitiesConsistency(t *testing.T) {
+	// After merge, NodeCommunities must accurately reflect Communities.
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(1, 2, 1.0)
+	g.AddEdge(2, 3, 1.0)
+
+	result := OverlappingCommunityResult{
+		Communities: [][]NodeID{{0, 1, 2}, {3}},
+		NodeCommunities: map[NodeID][]int{
+			0: {0}, 1: {0}, 2: {0}, 3: {1},
+		},
+	}
+
+	got, err := MergeOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify NodeCommunities consistency: every node in Communities[i] must list i.
+	for i, comm := range got.Communities {
+		for _, n := range comm {
+			found := false
+			for _, ci := range got.NodeCommunities[n] {
+				if ci == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("node %d not listed in NodeCommunities for community %d", n, i)
+			}
+		}
+	}
+}
+
+func TestMergeOverlappingCommunities_NoOp(t *testing.T) {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	result := OverlappingCommunityResult{
+		Communities:     [][]NodeID{{0, 1}},
+		NodeCommunities: map[NodeID][]int{0: {0}, 1: {0}},
+	}
+	got, err := MergeOverlappingCommunities(g, result, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Communities) != 1 {
+		t.Fatalf("expected 1 community (no-op), got %d", len(got.Communities))
+	}
+}
+
+func ExampleMergeCommunities() {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(0, 2, 1.0)
+	g.AddEdge(0, 3, 1.0)
+
+	// Simulate Louvain result where each node is its own community.
+	detected := CommunityResult{
+		Partition: map[NodeID]int{0: 0, 1: 1, 2: 2, 3: 3},
+	}
+
+	merged, err := MergeCommunities(g, detected, MergeOptions{MinSize: 2})
+	if err != nil {
+		panic(err)
+	}
+	_ = merged // merged.Partition contains the consolidated partition
+	// Output:
+}
