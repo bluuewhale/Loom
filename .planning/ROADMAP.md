@@ -81,9 +81,10 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - All existing tests pass
 - No public API signature changes
 **Depends on:** Phase 0 (all v1.3 work complete)
-**Plans:** 3/3 plans complete
+**Plans:** 4 plans (3 complete + 1 gap closure)
 
 Plans:
 - [x] 01-01-PLAN.md — Nodes() cache, math/rand/v2 migration, dead code removal
 - [x] 01-02-PLAN.md — BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pool
 - [x] 01-03-PLAN.md — CSR adjacency view for phase1 inner loop
+- [ ] 01-04-PLAN.md — Gap closure: re-seed benchmark for PCG convergence + calibrate targets
