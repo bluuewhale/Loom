@@ -1,9 +1,12 @@
 package graph
 
-import "errors"
+import (
+	"errors"
+	"math"
+)
 
 // ErrInvalidMergeOptions is returned when MergeOptions contains invalid values.
-var ErrInvalidMergeOptions = errors.New("invalid merge options: MinSize must be >= 0 and MinFraction must be in [0, 1]")
+var ErrInvalidMergeOptions = errors.New("invalid merge options")
 
 // ErrPartitionGraphMismatch is returned when the partition references node IDs
 // not present in the graph.
@@ -51,14 +54,14 @@ func validateMergeOptions(opts MergeOptions) error {
 // mergeThreshold returns the effective node-count threshold from opts and totalNodes.
 func mergeThreshold(opts MergeOptions, totalNodes int) int {
 	threshold := opts.MinSize
-	if frac := int(opts.MinFraction * float64(totalNodes)); frac > threshold {
+	if frac := int(math.Round(opts.MinFraction * float64(totalNodes))); frac > threshold {
 		threshold = frac
 	}
 	return threshold
 }
 
-// resolution returns opts.Resolution, defaulting to 1.0.
-func (opts MergeOptions) resolution() float64 {
+// effectiveResolution returns opts.Resolution, defaulting to 1.0.
+func effectiveResolution(opts MergeOptions) float64 {
 	if opts.Resolution == 0 {
 		return 1.0
 	}
@@ -82,8 +85,8 @@ func MergeSmallCommunities(g *Graph, result CommunityResult, opts MergeOptions) 
 
 // MergeSmallOverlappingCommunities post-processes an overlapping partition by
 // absorbing communities below the threshold into the neighbour with the most
-// shared-node overlap (tie-broken by Strategy). NodeCommunities is rebuilt to
-// be consistent with the merged Communities slice.
+// shared-node overlap. NodeCommunities is rebuilt to be consistent with the
+// merged Communities slice.
 func MergeSmallOverlappingCommunities(g *Graph, result OverlappingCommunityResult, opts MergeOptions) (OverlappingCommunityResult, error) {
 	if err := validateMergeOptions(opts); err != nil {
 		return OverlappingCommunityResult{}, err
