@@ -225,9 +225,7 @@ func bestByModularity(g *Graph, neighborWeight map[int]float64, srcNodes []NodeI
 	if m == 0 {
 		return bestByConnectivity(neighborWeight)
 	}
-	twoM := 2 * m
 
-	// Compute strength of source community.
 	var srcStr float64
 	for _, n := range srcNodes {
 		srcStr += g.Strength(n)
@@ -236,7 +234,7 @@ func bestByModularity(g *Graph, neighborWeight map[int]float64, srcNodes []NodeI
 	best, bestDQ := -1, -1e18
 	for t, w := range neighborWeight {
 		tStr := g.CommStrength(t, partition)
-		dq := 2*w/twoM - 2*gamma*srcStr*tStr/(twoM*twoM)
+		dq := 2*w/m - 2*gamma*srcStr*tStr/(m*m)
 		if dq > bestDQ || (dq == bestDQ && t < best) {
 			best, bestDQ = t, dq
 		}
