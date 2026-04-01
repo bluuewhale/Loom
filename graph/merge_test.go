@@ -256,3 +256,21 @@ func TestMergeSmallOverlappingCommunities_NoOp(t *testing.T) {
 		t.Fatalf("expected 1 community (no-op), got %d", len(got.Communities))
 	}
 }
+
+func ExampleMergeSmallCommunities() {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(0, 2, 1.0)
+	g.AddEdge(0, 3, 1.0)
+
+	// Simulate Louvain result where each node is its own community.
+	detected := CommunityResult{
+		Partition: map[NodeID]int{0: 0, 1: 1, 2: 2, 3: 3},
+	}
+
+	merged, err := MergeSmallCommunities(g, detected, MergeOptions{MinSize: 2})
+	if err != nil {
+		panic(err)
+	}
+	_ = merged // merged.Partition contains the consolidated partition
+}

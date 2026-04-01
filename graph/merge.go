@@ -246,6 +246,10 @@ func bestByModularity(g *Graph, neighborWeight map[int]float64, srcNodes []NodeI
 // absorbing communities below the threshold into the neighbour with the most
 // shared-node overlap. NodeCommunities is rebuilt to be consistent with the
 // merged Communities slice.
+//
+// The caller must ensure each Communities[i] slice contains no duplicate NodeIDs,
+// as produced by EgoSplitting. Duplicate members will cause incorrect size
+// calculations and union behaviour.
 func MergeSmallOverlappingCommunities(g *Graph, result OverlappingCommunityResult, opts MergeOptions) (OverlappingCommunityResult, error) {
 	if err := validateMergeOptions(opts); err != nil {
 		return OverlappingCommunityResult{}, err
