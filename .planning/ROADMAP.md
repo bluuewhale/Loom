@@ -74,9 +74,13 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 ### Phase 1: optimize graph core
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 0
+**Goal:** Reduce allocations and improve throughput in the core graph hot paths — Nodes() caching, CSR adjacency view, BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pooling, rand.Rand reuse, and dead code removal (deltaQ, Tolerance field).
+**Requirements**:
+- Louvain 10K allocs/op drops from ~48 773 to ≤ 25 000
+- Louvain 10K ns/op improves by ≥ 15%
+- All existing tests pass
+- No public API signature changes
+**Depends on:** Phase 0 (all v1.3 work complete)
 **Plans:** 0 plans
 
 Plans:
