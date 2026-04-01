@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md — Nodes cache + rand/v2 PCG + dead code removal
-last_updated: "2026-04-01T05:23:25.900Z"
+stopped_at: Completed 01-02-PLAN.md — BFS cursor + buildSupergraph pre-sized maps + Subgraph pool
+last_updated: "2026-04-01T05:37:14.204Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 01 (optimize-graph-core) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -71,6 +71,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 12 P02 | 10min | 2 tasks | 3 files |
 | Phase 13 P01 | 5min | 2 tasks | 2 files |
 | Phase 01-optimize-graph-core P01 | 25 | 2 tasks | 7 files |
+| Phase 01-optimize-graph-core P02 | 13 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,10 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 01-optimize-graph-core]: EgoSplitting OmegaIndex tests recalibrated chosenSeed=101→73 for rand/v2 PCG (min Omega=0.454 >= 0.30 threshold)
 - [Phase 01-optimize-graph-core]: Nodes() cache: nil-on-mutation pattern — sortedNodes=nil inside !exists guard in AddNode, after totalWeight in AddEdge; cache confirmed working by pprof (near-zero Nodes allocs)
 - [Phase 01-optimize-graph-core]: PCG zero-alloc reseed: pool New() allocates pcg+rng once; reset() calls pcg.Seed() instead of rand.New() — eliminates 2-3 allocs per state reset
+- [Phase 01-optimize-graph-core]: BFS cursor (head int) replaces queue[1:] in refinePartition; queue backing array reused across communities
+- [Phase 01-optimize-graph-core]: buildSupergraph n<e.To single-pass dedup reverted — changed adjacency insertion order causing accuracy test regressions; pre-sized maps retained as allocation gain
+- [Phase 01-optimize-graph-core]: buildSupergraph write phase now sorts keys before AddEdge — makes adjacency layout deterministic (removes latent map-iteration non-determinism)
+- [Phase 01-optimize-graph-core]: sync.Pool for Subgraph seen-map eliminates per-call map allocation across ~10K EgoSplitting ego-net builds
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -145,7 +150,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-04-01T05:23:25.898Z
-Stopped at: Completed 01-01-PLAN.md — Nodes cache + rand/v2 PCG + dead code removal
+Last session: 2026-04-01T05:37:14.201Z
+Stopped at: Completed 01-02-PLAN.md — BFS cursor + buildSupergraph pre-sized maps + Subgraph pool
 Resume file: None
 Next action: `/gsd:verify-work 12`

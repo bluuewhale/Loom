@@ -81,9 +81,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - All existing tests pass
 - No public API signature changes
 **Depends on:** Phase 0 (all v1.3 work complete)
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [x] 01-01-PLAN.md — Nodes() cache, math/rand/v2 migration, dead code removal
-- [ ] 01-02-PLAN.md — BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pool
+- [x] 01-02-PLAN.md — BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pool
 - [ ] 01-03-PLAN.md — CSR adjacency view for phase1 inner loop
