@@ -104,3 +104,16 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — refinePartitionInPlace: CSR-indexed bool scratch + sorted pairs (eliminates all per-community allocs)
+
+### Phase 3: Leiden BFS refinement speed: linear grouping + CSR adjacency
+
+**Goal:** Reduce ns/op overhead in refinePartitionInPlace by replacing O(N log N) comparison sort with O(N) counting sort, and replacing g.Neighbors() adjacency map lookup with csr.adjByIdx[] direct slice access.
+**Requirements**:
+- Leiden 10K ns/op improves vs Phase 2 baseline (~60.4ms)
+- All existing tests pass
+- No public API signature changes
+**Depends on:** Phase 2
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 03-01-PLAN.md — counting sort + CSR BFS adjacency (−2.2% ns/op, Leiden 10K 60.4ms→59.1ms)

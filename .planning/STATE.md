@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 02-01-PLAN.md — refinePartitionInPlace: Leiden 10K allocs 58220→45938 (Louvain parity)
-last_updated: "2026-04-01T18:00:00.000Z"
+stopped_at: Completed 03-01-PLAN.md — counting sort + CSR BFS adjacency: Leiden 10K 60.4ms→59.1ms
+last_updated: "2026-04-01T18:30:00.000Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 1
@@ -82,6 +82,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 - Phase 1 added: optimize graph core
 - Phase 2 added: Leiden PCG benchmark regression fix
+- Phase 3 added: Leiden BFS refinement speed: linear grouping + CSR adjacency
 
 ### Decisions
 
@@ -132,6 +133,7 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 01-optimize-graph-core]: Seed 110 chosen for 10K benchmarks: PCG converges in 4 passes with ~1984 communities (closest to seed=1 old-rand topology among seeds 1-500)
 - [Phase 01-optimize-graph-core]: ROADMAP allocs/op target revised to <=50500 (measured ~45880 avg + 10% margin); ns/op target to >=10% (measured 11.7% = 63.5ms->56.1ms)
 - [Phase 02-leiden-pcg]: refinePartitionInPlace: CSR-indexed []bool scratch + sorted commNodePairs eliminates all per-community inComm/visited map allocs; Leiden 10K 58220→45938 allocs/op (−21%), now at Louvain parity; LeidenWarmStart 6955→5382 allocs/op (−23%)
+- [Phase 03-leiden-bfs-speed]: counting sort replaces slices.SortFunc (O(N) vs O(N log N)); BFS queue stores int32 CSR indices for csr.adjByIdx[] direct access; bounds assertion on commCountScratch; Leiden 10K 60.4ms→59.1ms (−2.2%)
 
 ### v1.2 Critical Pitfalls (from research)
 

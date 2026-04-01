@@ -19,9 +19,17 @@ type leidenState struct {
 	pcg              *rand.PCG          // stored source for zero-alloc reseed
 
 	// refinePartitionInPlace scratch — eliminates all per-community allocations:
-	commBuildPairs []commNodePair // (comm, node) pairs sorted by comm; grown lazily
+	commBuildPairs []commNodePair // (comm, node) pairs; grown lazily
 	inCommBits     []bool         // CSR-indexed; true if node is in current community
 	visitedBits    []bool         // CSR-indexed; true if node has been BFS-visited
+
+	// counting-sort scratch — replaces slices.SortFunc for O(N) community grouping:
+	commCountScratch []int // indexed by partition ID (always in [0,N)); reset via commSeenComms
+	commSeenComms    []int // dirty list of community IDs touched; used to zero commCountScratch
+	commSortedPairs  []commNodePair // scatter output buffer; same size as commBuildPairs
+
+	// BFS queue of CSR dense indices (int32) — avoids g.Neighbors map lookup:
+	bfsQueue []int32
 }
 
 // leidenStatePool reuses leidenState allocations across Detect calls to reduce GC pressure.
@@ -37,8 +45,11 @@ var leidenStatePool = sync.Pool{
 			candidateBuf:     make([]int, 0, 64),
 			rng:              rand.New(pcg),
 			pcg:              pcg,
-			commBuildPairs:   make([]commNodePair, 0, 128),
-			// inCommBits and visitedBits are grown lazily in refinePartitionInPlace.
+			commBuildPairs:  make([]commNodePair, 0, 128),
+			commSeenComms:   make([]int, 0, 64),
+			commSortedPairs: make([]commNodePair, 0, 128),
+			bfsQueue:        make([]int32, 0, 64),
+			// inCommBits, visitedBits, commCountScratch grown lazily in refinePartitionInPlace.
 		}
 	},
 }

@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"time"
@@ -226,14 +227,14 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 }
 
 // refinePartitionInPlace splits disconnected communities via BFS, writing results
-// directly into st.refinedPartition. It avoids all per-community heap allocations
-// by using CSR-indexed boolean scratch arrays and a single sorted-pairs pass.
+// directly into st.refinedPartition. Zero heap allocations after first pool warm-up.
 //
-// Replaces the old refinePartition which allocated commNodes, inComm, and visited
-// maps per community — the dominant allocation source in the Leiden 10K benchmark.
-// Self-loops are skipped during BFS. Communities are processed in sorted comm-ID
-// order; nodes within each community are processed in sorted NodeID order for
-// deterministic BFS starts.
+// Phase 2 eliminated per-community map allocations (inComm/visited maps).
+// Phase 3 optimizations:
+//   - Counting sort replaces slices.SortFunc: O(N) grouping via community-size prefix sums
+//     instead of O(N log N) comparison sort. commCountScratch is sparse-reset via commSeenComms.
+//   - BFS queue stores int32 CSR dense indices instead of NodeIDs: csr.adjByIdx[curIdx]
+//     replaces g.Neighbors(cur) (adjacency map lookup → direct slice access).
 func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, st *leidenState) {
 	n := len(csr.nodeIDs)
 
@@ -243,67 +244,103 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 		st.inCommBits = make([]bool, n)
 		st.visitedBits = make([]bool, n)
 	}
-
-	// Build (comm, node) pairs — one per node, reuse backing array.
-	// Reset to length 0 before appending so no stale entries from prior larger graphs
-	// can contaminate the sort when cap >= n.
-	st.commBuildPairs = st.commBuildPairs[:0]
-	for node, comm := range partition {
-		st.commBuildPairs = append(st.commBuildPairs, commNodePair{comm: comm, node: node})
+	if len(st.commCountScratch) < n {
+		st.commCountScratch = make([]int, n)
 	}
 
-	// Sort by (community ID, node ID) — communities in sorted order, nodes within
-	// each community in deterministic order for reproducible BFS start selection.
-	// Use explicit three-way compare for NodeID to avoid truncation if the type widens.
-	slices.SortFunc(st.commBuildPairs, func(a, b commNodePair) int {
-		if a.comm != b.comm {
-			return a.comm - b.comm
+	// --- Counting sort: group nodes by community in O(N) ---
+
+	// Pass 1: collect (comm, node) pairs; count community sizes.
+	// commCountScratch is pre-zeroed (reset at end of prior call via commSeenComms).
+	// Invariant: partition IDs after phase1 are always in [0, n) because reset() assigns
+	// cold-start IDs in [0, N) and phase1 only adopts existing IDs — never creates new ones.
+	st.commBuildPairs = st.commBuildPairs[:0]
+	st.commSeenComms = st.commSeenComms[:0]
+	for node, comm := range partition {
+		if comm < 0 || comm >= n {
+			panic(fmt.Sprintf("refinePartitionInPlace: partition ID %d out of bounds [0, %d)", comm, n))
 		}
-		if a.node < b.node {
-			return -1
+		st.commBuildPairs = append(st.commBuildPairs, commNodePair{comm: comm, node: node})
+		if st.commCountScratch[comm] == 0 {
+			st.commSeenComms = append(st.commSeenComms, comm)
 		}
-		if a.node > b.node {
-			return 1
-		}
-		return 0
-	})
+		st.commCountScratch[comm]++
+	}
+
+	// Sort the community ID list (small: ~comms, not ~nodes) for deterministic processing order.
+	slices.Sort(st.commSeenComms)
+
+	// Compute exclusive prefix sums: commCountScratch[c] becomes the start offset
+	// of community c in the scatter output buffer.
+	np := len(st.commBuildPairs)
+	if cap(st.commSortedPairs) < np {
+		// Allocate with 25% headroom to amortize growth when node count increases.
+		st.commSortedPairs = make([]commNodePair, np, np+np/4+1)
+	} else {
+		st.commSortedPairs = st.commSortedPairs[:np]
+	}
+	offset := 0
+	for _, c := range st.commSeenComms {
+		size := st.commCountScratch[c]
+		st.commCountScratch[c] = offset
+		offset += size
+	}
+
+	// Pass 2: scatter pairs into output buffer; commCountScratch[c] advances as cursor.
+	for _, p := range st.commBuildPairs {
+		pos := st.commCountScratch[p.comm]
+		st.commSortedPairs[pos] = p
+		st.commCountScratch[p.comm]++
+	}
+
+	// Reset commCountScratch for next call (sparse reset: only touched entries).
+	for _, c := range st.commSeenComms {
+		st.commCountScratch[c] = 0
+	}
+
+	// --- BFS refinement: one pass per connected component ---
 
 	// Clear refined partition for this pass (reuse existing map allocation).
 	clear(st.refinedPartition)
 
 	nextID := 0
-	var queue []NodeID // backing reused across communities
 
-	// Process each community group in sorted order.
-	np := len(st.commBuildPairs) // use actual pair count, not stale n
-	for start := 0; start < np; {
-		comm := st.commBuildPairs[start].comm
+	// Process each community group. commSortedPairs is grouped by community in
+	// ascending comm-ID order (scatter preserves commSeenComms sorted order).
+	// The two orderings are coupled: commSeenComms is sorted, and the prefix-sum
+	// scatter places community c's nodes at offsets [commOffset[c], commOffset[c]+size[c]).
+	// Community boundaries are therefore contiguous, and the inner `end` scan is correct.
+	start := 0
+	for range st.commSeenComms {
 		end := start
-		for end < np && st.commBuildPairs[end].comm == comm {
+		for end < np && st.commSortedPairs[end].comm == st.commSortedPairs[start].comm {
 			end++
 		}
-		// st.commBuildPairs[start:end] holds all nodes in this community.
+		// st.commSortedPairs[start:end] holds all nodes in this community.
 
 		// Mark inComm bits for every node in this community.
-		for _, p := range st.commBuildPairs[start:end] {
+		for _, p := range st.commSortedPairs[start:end] {
 			st.inCommBits[csr.idToIdx[p.node]] = true
 		}
 
 		// BFS from each unvisited node — each BFS discovers one connected component.
-		for _, p := range st.commBuildPairs[start:end] {
+		// Queue stores int32 CSR dense indices: csr.adjByIdx[idx] is a direct slice
+		// access, replacing the g.Neighbors() adjacency map lookup.
+		for _, p := range st.commSortedPairs[start:end] {
 			startIdx := csr.idToIdx[p.node]
 			if st.visitedBits[startIdx] {
 				continue
 			}
-			queue = queue[:0]
-			queue = append(queue, p.node)
+			st.bfsQueue = st.bfsQueue[:0]
+			st.bfsQueue = append(st.bfsQueue, startIdx)
 			st.visitedBits[startIdx] = true
 			head := 0
-			for head < len(queue) {
-				cur := queue[head]
+			for head < len(st.bfsQueue) {
+				curIdx := st.bfsQueue[head]
 				head++
+				cur := csr.nodeIDs[curIdx]
 				st.refinedPartition[cur] = nextID
-				for _, e := range g.Neighbors(cur) {
+				for _, e := range csr.adjByIdx[curIdx] { // direct slice: no map lookup
 					if e.To == cur {
 						continue // skip self-loops
 					}
@@ -313,7 +350,7 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 					}
 					if !st.visitedBits[toIdx] {
 						st.visitedBits[toIdx] = true
-						queue = append(queue, e.To)
+						st.bfsQueue = append(st.bfsQueue, toIdx)
 					}
 				}
 			}
@@ -321,7 +358,7 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 		}
 
 		// Clear inComm and visited bits — only touches nodes in this community.
-		for _, p := range st.commBuildPairs[start:end] {
+		for _, p := range st.commSortedPairs[start:end] {
 			idx := csr.idToIdx[p.node]
 			st.inCommBits[idx] = false
 			st.visitedBits[idx] = false
