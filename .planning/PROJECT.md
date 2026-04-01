@@ -133,4 +133,4 @@ See `.planning/milestones/v1.2-ROADMAP.md` for full phase details.
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-31 — v1.3 shipped: Online Ego-Splitting (Phases 10–13) archived. 29x Update() speedup, 233ms/op parallel ego-net construction.*
+*Last updated: 2026-04-01 — Phase 14 complete: reset() warm-start optimizations. sortedNodes cache skips O(N log N) sort; commStr delta patch reduces O(N) rebuild to O(|communities|). BenchmarkEgoSplittingUpdate1Node1Edge: 175ms → 158ms/op.*
