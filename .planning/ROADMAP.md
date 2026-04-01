@@ -72,6 +72,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 12: Parallel Ego-Net Construction and Performance | v1.3 | 2/2 | Complete | 2026-03-31 |
 | 13: Correctness Hardening and Race Safety | v1.3 | 1/1 | Complete | 2026-03-31 |
 
+| 01: optimize graph core | graph-core-opt | 4/4 | Complete | 2026-04-01 |
+| 02: Leiden PCG benchmark regression fix | graph-core-opt | 1/1 | Complete | 2026-04-01 |
+
 ### Phase 1: optimize graph core
 
 **Goal:** Reduce allocations and improve throughput in the core graph hot paths — Nodes() caching, CSR adjacency view, BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pooling, rand.Rand reuse, and dead code removal (deltaQ, Tolerance field).
