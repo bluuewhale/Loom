@@ -238,30 +238,34 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 	n := len(csr.nodeIDs)
 
 	// Grow CSR-indexed scratch slices lazily (once per pool lifetime after first large graph).
-	if len(st.inCommBits) < n {
+	// Both slices are always grown together to keep them in sync.
+	if len(st.inCommBits) < n || len(st.visitedBits) < n {
 		st.inCommBits = make([]bool, n)
 		st.visitedBits = make([]bool, n)
 	}
 
 	// Build (comm, node) pairs — one per node, reuse backing array.
-	if cap(st.commBuildPairs) < n {
-		st.commBuildPairs = make([]commNodePair, n)
-	} else {
-		st.commBuildPairs = st.commBuildPairs[:n]
-	}
-	i := 0
+	// Reset to length 0 before appending so no stale entries from prior larger graphs
+	// can contaminate the sort when cap >= n.
+	st.commBuildPairs = st.commBuildPairs[:0]
 	for node, comm := range partition {
-		st.commBuildPairs[i] = commNodePair{comm: comm, node: node}
-		i++
+		st.commBuildPairs = append(st.commBuildPairs, commNodePair{comm: comm, node: node})
 	}
 
 	// Sort by (community ID, node ID) — communities in sorted order, nodes within
 	// each community in deterministic order for reproducible BFS start selection.
+	// Use explicit three-way compare for NodeID to avoid truncation if the type widens.
 	slices.SortFunc(st.commBuildPairs, func(a, b commNodePair) int {
 		if a.comm != b.comm {
 			return a.comm - b.comm
 		}
-		return int(a.node) - int(b.node)
+		if a.node < b.node {
+			return -1
+		}
+		if a.node > b.node {
+			return 1
+		}
+		return 0
 	})
 
 	// Clear refined partition for this pass (reuse existing map allocation).
@@ -271,10 +275,11 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 	var queue []NodeID // backing reused across communities
 
 	// Process each community group in sorted order.
-	for start := 0; start < n; {
+	np := len(st.commBuildPairs) // use actual pair count, not stale n
+	for start := 0; start < np; {
 		comm := st.commBuildPairs[start].comm
 		end := start
-		for end < n && st.commBuildPairs[end].comm == comm {
+		for end < np && st.commBuildPairs[end].comm == comm {
 			end++
 		}
 		// st.commBuildPairs[start:end] holds all nodes in this community.
