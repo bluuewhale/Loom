@@ -1,90 +1,253 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-03-29
+**Analysis Date:** 2026-04-01
+
+## Language & Runtime
+
+**Go 1.26** (single module, no external dependencies).
+All production code and tests live in `graph/` package (`package graph`).
+Test files use `package graph` (white-box), giving tests full access to unexported symbols.
+
+---
 
 ## Naming Patterns
 
 **Files:**
-- Snake-case not used; files named after their primary type/concept: `graph.go`, `registry.go`, `modularity.go`
-- Test files co-located with source: `graph_test.go`, `registry_test.go`, `modularity_test.go`
-- Test fixture data in `graph/testdata/` subdirectory: `karate.go`
+- One primary concern per file: `louvain.go`, `leiden.go`, `modularity.go`, `ego_splitting.go`, `registry.go`, `graph.go`
+- State/pool helpers use `_state` suffix: `louvain_state.go`, `leiden_state.go`
+- Test files mirror source: `louvain_test.go`, `leiden_test.go`, `ego_splitting_test.go`
+- Build-tag pair: `race_test.go` / `norace_test.go`
 
 **Types:**
-- PascalCase for exported types: `NodeID`, `Edge`, `Graph`, `NodeRegistry`
-- Type aliases via `type NodeID int` pattern for type-safe primitives
+- Exported interfaces: noun + role suffix — `CommunityDetector`, `OverlappingCommunityDetector`, `OnlineOverlappingCommunityDetector`
+- Unexported implementations: algorithm + `Detector` — `louvainDetector`, `leidenDetector`, `egoSplittingDetector`
+- State structs: algorithm + `State` — `louvainState`, `leidenState`
+- Result/option structs: noun + descriptor — `CommunityResult`, `OverlappingCommunityResult`, `LouvainOptions`, `LeidenOptions`, `EgoSplittingOptions`
 
-**Functions and Methods:**
-- PascalCase for all exported functions and methods: `NewGraph`, `AddEdge`, `ComputeModularity`
-- Constructor functions named `New<Type>`: `NewGraph(directed bool) *Graph`, `NewRegistry() *NodeRegistry`
-- Receiver variable is a single lowercase letter matching the type: `g *Graph`, `r *NodeRegistry`
+**Functions:**
+- Constructors: `New` prefix — `NewLouvain`, `NewLeiden`, `NewEgoSplitting`, `NewOnlineEgoSplitting`, `NewGraph`, `NewRegistry`
+- Pool acquire/release pairs: `acquireLouvainState` / `releaseLouvainState`, `acquireLeidenState` / `releaseLeidenState`
+- Unexported algorithm phases: `phase1`, `buildSupergraph`, `refinePartition`, `reconstructPartition`, `normalizePartition`
+- Helpers named for what they build: `buildEgoNet`, `buildPersonaGraph`, `buildPersonaGraphIncremental`, `computeAffected`, `mapPersonasToOriginal`
 
 **Variables:**
-- camelCase for local variables: `nodeSet`, `twoW`, `intraWeight`, `commStats`
-- Short single-letter locals for tight loops: `c`, `s`, `w`, `e`, `id`
-- Struct field names: camelCase unexported (`directed`, `nodes`, `adjacency`, `totalWeight`), PascalCase exported (`To`, `Weight`)
+- Short identifiers in hot loops: `n`, `m`, `ki`, `dq`, `comm`, `superN`
+- Derived constants as local vars: `twoM`, `kiOverTwoM`, `kiOverTwoM`
+- Exported errors: `Err` prefix — `ErrDirectedNotSupported`, `ErrEmptyGraph`
 
-**Packages:**
-- All production code lives in package `graph`
-- Test fixture data lives in package `testdata` under `graph/testdata/`
-- Module name matches repo directory: `community-detection`
+---
 
 ## Code Style
 
-**Formatting:**
-- Standard `gofmt` formatting is assumed (Go convention)
-- No explicit linter config file present; standard Go tooling only
+**Formatting:** Standard `gofmt`. No custom formatter config detected.
 
-**Linting:**
-- No `.golangci.yml` or similar config detected; standard `go vet` expected
+**Linting:** No `.golangci.yml` or linter config present. Idiomatic Go patterns throughout.
+
+---
 
 ## Import Organization
 
-**Order (Go standard):**
-1. Standard library: `"math"`, `"testing"`
-2. Internal packages: `"community-detection/graph/testdata"`
+**Order (standard Go convention):**
+1. Standard library: `math`, `slices`, `sync`, `time`, `errors`, `runtime`, `sort`
+2. Internal package (test files only): `github.com/bluuewhale/loom/graph/testdata`
 
-**No external dependencies** — `go.mod` declares only the Go version (1.26.1), no third-party modules.
+No path aliases. No third-party dependencies anywhere.
+
+---
+
+## Guard Clause Pattern
+
+All `Detect` methods open with identical guard clauses before any computation:
+
+```go
+if g.IsDirected() {
+    return CommunityResult{}, ErrDirectedNotSupported
+}
+if g.NodeCount() == 0 {
+    return CommunityResult{}, nil
+}
+if g.NodeCount() == 1 {
+    node := g.Nodes()[0]
+    return CommunityResult{Partition: map[NodeID]int{node: 0}, Modularity: 0.0, Passes: 1, Moves: 0}, nil
+}
+if g.TotalWeight() == 0 {
+    // All nodes disconnected: each in own community.
+    ...
+}
+```
+
+This block is copy-pasted verbatim in `louvain.go:12-43` and `leiden.go:21-51`.
+
+---
 
 ## Error Handling
 
 **Patterns:**
-- No `error` return values used in the current codebase
-- Invalid/missing inputs handled via sentinel returns: `(0, false)` for `ID()`, `("", false)` for `Name()`
-- No-op semantics for idempotent operations: `AddNode` on an existing node is a silent no-op
-- Missing nodes in partition maps default to community `-1` (singleton) in `ComputeModularity`
-- Boundary returns for degenerate inputs: `ComputeModularity` returns `0.0` when graph has no edges
+- Package-level sentinel errors via `errors.New`: `ErrDirectedNotSupported`, `ErrEmptyGraph`
+- Errors propagated as direct returns: `return CommunityResult{}, err`
+- No error wrapping (`fmt.Errorf %w`) — sentinel errors only
+- Multi-run Leiden intentionally discards `lastErr` when at least one run succeeds (documented in comment at `leiden.go:87-90`)
+- Tests assert sentinel errors with `errors.Is`: `errors.Is(err, ErrDirectedNotSupported)`
 
-## Logging
+---
 
-**Framework:** None — production code uses no logging
-**Test logging:** `t.Logf(...)` used for informational output in tests (e.g., Karate Club Q value)
+## Performance Conventions
+
+### Object Pooling via sync.Pool
+
+Both state types use `sync.Pool` to reduce GC pressure:
+
+```go
+var louvainStatePool = sync.Pool{
+    New: func() any {
+        return &louvainState{
+            partition:     make(map[NodeID]int),
+            commStr:       make(map[int]float64),
+            neighborBuf:   make(map[NodeID]float64),
+            neighborDirty: make([]NodeID, 0, 64),
+            candidateBuf:  make([]int, 0, 64),
+        }
+    },
+}
+```
+
+Callers always pair acquire with deferred release:
+```go
+state := acquireLouvainState(currentGraph, seed)
+defer releaseLouvainState(state)
+```
+
+### Dirty-List Buffer Reset (avoids full map clear per node)
+
+```go
+// In phase1(), per-node neighbor accumulation:
+for _, k := range state.neighborDirty {
+    delete(state.neighborBuf, k)
+}
+state.neighborDirty = state.neighborDirty[:0]
+// ... accumulate writes into neighborBuf, append keys to neighborDirty
+```
+
+Avoids O(map capacity) cost of `clear()` per node when only a small number of neighbors are touched.
+
+### Pre-allocated Slice Capacity
+
+All reusable buffers start with capacity 64:
+```go
+neighborDirty: make([]NodeID, 0, 64),
+candidateBuf:  make([]int, 0, 64),
+```
+
+### Sorted Traversal for Determinism
+
+`slices.Sort(nodes)` before `rng.Shuffle` ensures the RNG seed is the sole source of traversal randomness (map iteration order is intentionally non-deterministic in Go):
+```go
+nodes := g.Nodes()
+slices.Sort(nodes)
+state.rng.Shuffle(len(nodes), func(i, j int) { nodes[i], nodes[j] = nodes[j], nodes[i] })
+```
+
+### Insertion Sort for Small Candidate Slices
+
+```go
+// In phase1(): candidate count is bounded by node degree — small in practice.
+for i := 1; i < len(candidates); i++ {
+    for j := i; j > 0 && candidates[j] < candidates[j-1]; j-- {
+        candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
+    }
+}
+```
+
+### Canonical Edge Key for Deduplication
+
+Used consistently in `buildSupergraph`, `Subgraph`, `buildPersonaGraph`, and incremental rebuild:
+```go
+lo, hi := from, e.To
+if lo > hi { lo, hi = hi, lo }
+key := [2]NodeID{lo, hi}
+if _, already := seen[key]; already { continue }
+seen[key] = struct{}{}
+```
+
+### Parallel Ego-Net Detection
+
+`buildPersonaGraph` in `ego_splitting.go:463-503` dispatches non-isolated ego-nets to `runtime.GOMAXPROCS(0)` workers. Ego-nets are built once before dispatch:
+```go
+workerCount := runtime.GOMAXPROCS(0)
+// ... build all egoNets, store in nonEmptyJobs
+go func() {
+    for _, job := range nonEmptyJobs { jobCh <- egoNetJob{...} }
+    close(jobCh)
+}()
+results := runParallelEgoNets(jobCh, localDetector, workerCount)
+```
+
+### isolatedOnly Fast-Path in Update
+
+When all affected nodes are newly-added isolated nodes (no edges), `buildPersonaGraphIncremental` returns `isolatedOnly=true`, allowing `Update` to skip global Louvain entirely and assign singletons directly.
+
+---
 
 ## Comments
 
-**When to Comment:**
-- Every exported type, function, and method has a doc comment beginning with the identifier name
-- Comments explain *why* and *how*, not just *what*: semantics, edge cases, complexity
-- Multi-line comments for complex invariants (e.g., `Graph` struct comment explains undirected edge storage)
-- Inline comments for non-obvious logic: `// Auto-create nodes if not present`, `// totalWeight counts each distinct edge once`
+**Doc comments:** Every exported type, function, and method has a Go doc comment.
 
-**Doc Comment Style:**
-- First sentence: `// <Identifier> <verb phrase>.` — matches godoc convention
-- Block-level comments explain algorithmic formulas inline: `// Formula: Q = Σ_c [ ... ]`
+**Mathematical formulas cited inline:**
+```go
+// ΔQ(comm) = kiIn/m - resolution*(sigTot/(2m))*(ki/(2m))
+// Formula: Q = Σ_c [ intraWeight/twoW - resolution * (degSum/twoW)^2 ]
+```
 
-## Function Design
+**Algorithm references:** Epasto, Lattanzi, Paes Leme 2017 (Ego Splitting) and Newman-Girvan modularity cited in function-level comments.
 
-**Size:** Functions are small and focused; longest functions (`Subgraph`, `ComputeModularityWeighted`) are ~40 lines
-**Parameters:** Prefer explicit typed parameters; no variadic or option-struct patterns yet
-**Return Values:** Named return values not used; multi-value returns used for (value, bool) lookup pattern
+**Requirement IDs tracked in comments:**
+```go
+// (ONLINE-05), (ONLINE-06), (ONLINE-11), (EGO-CRIT-02), (PERF-02), (IG-2)
+```
+
+---
 
 ## Module Design
 
-**Exports:** Only types and functions needed by callers are exported; struct fields are unexported
-**Barrel Files:** Not used; each file exposes its own exports directly
-**Testdata package:** Fixture data is a separate `testdata` package under the main package directory, following Go convention for test fixtures
+**Exports:**
+- All constructors exported: `NewLouvain`, `NewLeiden`, `NewEgoSplitting`, `NewOnlineEgoSplitting`
+- All interfaces exported: `CommunityDetector`, `OverlappingCommunityDetector`, `OnlineOverlappingCommunityDetector`
+- Concrete types unexported — callers program to interfaces
 
-## Struct Design
+**Unexported carry-forward fields on `OverlappingCommunityResult`:**
+```go
+personaOf        map[NodeID]map[int]NodeID
+inverseMap       map[NodeID]NodeID
+partitions       map[NodeID]map[NodeID]int
+personaPartition map[NodeID]int
+personaGraph     *Graph
+```
+Accessible only within package; passed through `Update()` for incremental recomputation.
 
-- Internal state always unexported (`nodes map[NodeID]float64`, `adjacency map[NodeID][]Edge`)
-- Struct literals with field names always used (not positional) in constructors
-- `make(map[K]V)` with capacity hints where size is known: `make(map[NodeID]float64, len(g.nodes))`
+**Barrel Files:** None — single `graph` package, flat structure.
+
+**Testdata subpackage:** `graph/testdata/` exports `KarateClubEdges`, `FootballEdges`, `PolbooksEdges` and matching `*Partition` maps as package-level variables.
+
+---
+
+## Concurrency Contract
+
+- `CommunityDetector` implementations: safe for concurrent use **on distinct `*Graph` instances**
+- `sync.Pool` ensures state isolation between concurrent `Detect` calls
+- `cloneDetector` creates per-worker detector copies so goroutine workers never share mutable RNG state
+- `NodeRegistry`: explicitly **not safe** for concurrent use (documented)
+
+---
+
+## Code Duplication Hotspots
+
+1. **Guard clauses**: Identical 4-case block copied verbatim in `louvain.go:12-43` and `leiden.go:21-51`
+2. **`reset()` body**: `louvainState.reset` (`louvain_state.go:49-116`) and `leidenState.reset` (`leiden_state.go:53-121`) are near-identical; warm-start logic is fully duplicated
+3. **Legacy constructors kept alongside pool**: `newLouvainState` (`louvain_state.go:120-147`) and `newLeidenState` (`leiden_state.go:127-155`) duplicate pool-path initialization for "backward-compatibility"
+4. **Deduplicate + compact community IDs**: Identical ~30-line block in `Detect` (`ego_splitting.go:143-189`) and `Update` (`ego_splitting.go:278-319`)
+5. **Edge-wiring loop**: The canonical `(lo,hi)` dedup + persona lookup loop written twice inside `buildPersonaGraphIncremental` — incremental patch path (`ego_splitting.go:836-873`) and full-rebuild fallback (`ego_splitting.go:882-919`)
+6. **Graph builder test helpers**: `buildKarateClubLouvain` (`louvain_test.go:14-20`), `buildKarateClubLeiden` (`leiden_test.go:13-19`), and `buildKarateClub` (`modularity_test.go:11-17`) all build the identical graph
+
+---
+
+*Convention analysis: 2026-04-01*
