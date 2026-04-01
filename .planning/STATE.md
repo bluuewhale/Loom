@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-02-PLAN.md — BFS cursor + buildSupergraph pre-sized maps + Subgraph pool
-last_updated: "2026-04-01T05:37:14.204Z"
+status: verifying
+stopped_at: Completed 01-03-PLAN.md — zero-copy CSR + index-shuffle phase1
+last_updated: "2026-04-01T06:00:01.118Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 01 (optimize-graph-core) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [____________] 0% (0/4 phases complete)
@@ -72,6 +72,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 13 P01 | 5min | 2 tasks | 2 files |
 | Phase 01-optimize-graph-core P01 | 25 | 2 tasks | 7 files |
 | Phase 01-optimize-graph-core P02 | 13 | 2 tasks | 3 files |
+| Phase 01-optimize-graph-core P03 | 30 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,8 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 01-optimize-graph-core]: buildSupergraph n<e.To single-pass dedup reverted — changed adjacency insertion order causing accuracy test regressions; pre-sized maps retained as allocation gain
 - [Phase 01-optimize-graph-core]: buildSupergraph write phase now sorts keys before AddEdge — makes adjacency layout deterministic (removes latent map-iteration non-determinism)
 - [Phase 01-optimize-graph-core]: sync.Pool for Subgraph seen-map eliminates per-call map allocation across ~10K EgoSplitting ego-net builds
+- [Phase 01-optimize-graph-core]: Zero-copy CSR: adjByIdx holds direct refs to g.adjacency slices; index-shuffle in phase1 eliminates idToIdx map lookup in hot loop
+- [Phase 01-optimize-graph-core]: CSR alloc target (<=25K) unachievable via CSR alone — dominant source is buildSupergraph extra pass from PCG shuffle (established 01-01); CSR retained as zero-regression with bytes/op improvement 36MB->30MB
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -150,7 +153,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-04-01T05:37:14.201Z
-Stopped at: Completed 01-02-PLAN.md — BFS cursor + buildSupergraph pre-sized maps + Subgraph pool
+Last session: 2026-04-01T06:00:01.115Z
+Stopped at: Completed 01-03-PLAN.md — zero-copy CSR + index-shuffle phase1
 Resume file: None
 Next action: `/gsd:verify-work 12`
