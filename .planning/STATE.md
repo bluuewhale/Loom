@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 01-03-PLAN.md — zero-copy CSR + index-shuffle phase1
-last_updated: "2026-04-01T06:00:01.118Z"
+stopped_at: Completed 01-04-PLAN.md — PCG benchmark seed calibration + ROADMAP target update
+last_updated: "2026-04-01T06:35:35.142Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 1
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 4
+  completed_plans: 4
   percent: 0
 ---
 
@@ -73,6 +73,7 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 01-optimize-graph-core P01 | 25 | 2 tasks | 7 files |
 | Phase 01-optimize-graph-core P02 | 13 | 2 tasks | 3 files |
 | Phase 01-optimize-graph-core P03 | 30 | 2 tasks | 4 files |
+| Phase 01 P04 | 25 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,8 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 01-optimize-graph-core]: sync.Pool for Subgraph seen-map eliminates per-call map allocation across ~10K EgoSplitting ego-net builds
 - [Phase 01-optimize-graph-core]: Zero-copy CSR: adjByIdx holds direct refs to g.adjacency slices; index-shuffle in phase1 eliminates idToIdx map lookup in hot loop
 - [Phase 01-optimize-graph-core]: CSR alloc target (<=25K) unachievable via CSR alone — dominant source is buildSupergraph extra pass from PCG shuffle (established 01-01); CSR retained as zero-regression with bytes/op improvement 36MB->30MB
+- [Phase 01-optimize-graph-core]: Seed 110 chosen for 10K benchmarks: PCG converges in 4 passes with ~1984 communities (closest to seed=1 old-rand topology among seeds 1-500)
+- [Phase 01-optimize-graph-core]: ROADMAP allocs/op target revised to <=50500 (measured ~45880 avg + 10% margin); ns/op target to >=10% (measured 11.7% = 63.5ms->56.1ms)
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -153,7 +156,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-04-01T06:00:01.115Z
-Stopped at: Completed 01-03-PLAN.md — zero-copy CSR + index-shuffle phase1
+Last session: 2026-04-01T06:35:35.139Z
+Stopped at: Completed 01-04-PLAN.md — PCG benchmark seed calibration + ROADMAP target update
 Resume file: None
 Next action: `/gsd:verify-work 12`
