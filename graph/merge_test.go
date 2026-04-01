@@ -177,3 +177,82 @@ func TestMergeSmallCommunities_ModularityStrategy(t *testing.T) {
 		t.Fatalf("expected node 0 to merge into community containing node 1, got partition %v", got.Partition)
 	}
 }
+
+func TestMergeSmallOverlappingCommunities_BasicUnion(t *testing.T) {
+	// Comm 0: {0,1,2}, Comm 1: {3} (size 1 < threshold 2)
+	// Node 3 has an edge to node 2 (comm 0) but no shared membership with comm 0.
+	// → Comm 1 should be merged into Comm 0 via connectivity fallback.
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(1, 2, 1.0)
+	g.AddEdge(2, 3, 1.0)
+
+	result := OverlappingCommunityResult{
+		Communities: [][]NodeID{{0, 1, 2}, {3}},
+		NodeCommunities: map[NodeID][]int{
+			0: {0}, 1: {0}, 2: {0}, 3: {1},
+		},
+	}
+
+	got, err := MergeSmallOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Communities) != 1 {
+		t.Fatalf("expected 1 community, got %d", len(got.Communities))
+	}
+	if len(got.Communities[0]) != 4 {
+		t.Fatalf("expected 4 nodes in community 0, got %d", len(got.Communities[0]))
+	}
+}
+
+func TestMergeSmallOverlappingCommunities_NodeCommunitiesConsistency(t *testing.T) {
+	// After merge, NodeCommunities must accurately reflect Communities.
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	g.AddEdge(1, 2, 1.0)
+	g.AddEdge(2, 3, 1.0)
+
+	result := OverlappingCommunityResult{
+		Communities: [][]NodeID{{0, 1, 2}, {3}},
+		NodeCommunities: map[NodeID][]int{
+			0: {0}, 1: {0}, 2: {0}, 3: {1},
+		},
+	}
+
+	got, err := MergeSmallOverlappingCommunities(g, result, MergeOptions{MinSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify NodeCommunities consistency: every node in Communities[i] must list i.
+	for i, comm := range got.Communities {
+		for _, n := range comm {
+			found := false
+			for _, ci := range got.NodeCommunities[n] {
+				if ci == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("node %d not listed in NodeCommunities for community %d", n, i)
+			}
+		}
+	}
+}
+
+func TestMergeSmallOverlappingCommunities_NoOp(t *testing.T) {
+	g := NewGraph(false)
+	g.AddEdge(0, 1, 1.0)
+	result := OverlappingCommunityResult{
+		Communities:     [][]NodeID{{0, 1}},
+		NodeCommunities: map[NodeID][]int{0: {0}, 1: {0}},
+	}
+	got, err := MergeSmallOverlappingCommunities(g, result, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Communities) != 1 {
+		t.Fatalf("expected 1 community (no-op), got %d", len(got.Communities))
+	}
+}

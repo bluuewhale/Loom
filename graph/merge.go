@@ -250,5 +250,140 @@ func MergeSmallOverlappingCommunities(g *Graph, result OverlappingCommunityResul
 	if err := validateMergeOptions(opts); err != nil {
 		return OverlappingCommunityResult{}, err
 	}
-	return result, nil
+
+	totalNodes := len(result.NodeCommunities)
+	threshold := mergeThreshold(opts, totalNodes)
+	if threshold == 0 {
+		return result, nil
+	}
+
+	// Work on copies — do not mutate the input.
+	communities := make([][]NodeID, len(result.Communities))
+	for i, c := range result.Communities {
+		cp := make([]NodeID, len(c))
+		copy(cp, c)
+		communities[i] = cp
+	}
+	nodeCommunities := make(map[NodeID][]int, len(result.NodeCommunities))
+	for n, cs := range result.NodeCommunities {
+		cp := make([]int, len(cs))
+		copy(cp, cs)
+		nodeCommunities[n] = cp
+	}
+
+	// Identify candidates: non-nil communities with size < threshold.
+	type ovCandidate struct{ idx, size int }
+	var candidates []ovCandidate
+	for i, c := range communities {
+		if len(c) > 0 && len(c) < threshold {
+			candidates = append(candidates, ovCandidate{i, len(c)})
+		}
+	}
+	if len(candidates) == 0 {
+		return result, nil
+	}
+	// Sort smallest-first, tie-break by idx.
+	for i := 1; i < len(candidates); i++ {
+		for j := i; j > 0 && (candidates[j].size < candidates[j-1].size ||
+			(candidates[j].size == candidates[j-1].size && candidates[j].idx < candidates[j-1].idx)); j-- {
+			candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
+		}
+	}
+
+	for _, cand := range candidates {
+		src := communities[cand.idx]
+		if len(src) == 0 {
+			continue // already consumed by an earlier merge
+		}
+
+		// Find neighbour community with most shared nodes (overlap-based).
+		overlap := make(map[int]int)
+		for _, n := range src {
+			for _, ci := range nodeCommunities[n] {
+				if ci != cand.idx {
+					overlap[ci]++
+				}
+			}
+		}
+
+		var target int
+		if len(overlap) > 0 {
+			// Pick highest overlap; tie-break by idx.
+			target = -1
+			bestOverlap := -1
+			for ci, cnt := range overlap {
+				if cnt > bestOverlap || (cnt == bestOverlap && ci < target) {
+					target, bestOverlap = ci, cnt
+				}
+			}
+		} else {
+			// No shared-membership neighbours — fall back to graph connectivity.
+			connWeight := make(map[int]float64)
+			for _, n := range src {
+				for _, e := range g.Neighbors(n) {
+					for _, ci := range nodeCommunities[e.To] {
+						if ci != cand.idx {
+							connWeight[ci] += e.Weight
+						}
+					}
+				}
+			}
+			if len(connWeight) == 0 {
+				continue // isolated — leave in place
+			}
+			target = -1
+			bestW := -1.0
+			for ci, w := range connWeight {
+				if w > bestW || (w == bestW && ci < target) {
+					target = ci
+					bestW = w
+				}
+			}
+		}
+
+		// Union src into target (add only nodes not already in target).
+		existing := make(map[NodeID]struct{}, len(communities[target]))
+		for _, n := range communities[target] {
+			existing[n] = struct{}{}
+		}
+		for _, n := range src {
+			if _, ok := existing[n]; !ok {
+				communities[target] = append(communities[target], n)
+				nodeCommunities[n] = append(nodeCommunities[n], target)
+			}
+		}
+		communities[cand.idx] = nil // mark as consumed
+	}
+
+	// Compact: remove nil slots and rebuild NodeCommunities with new indices.
+	var compacted [][]NodeID
+	remap := make(map[int]int)
+	for i, c := range communities {
+		if c != nil {
+			remap[i] = len(compacted)
+			compacted = append(compacted, c)
+		}
+	}
+
+	newNodeComm := make(map[NodeID][]int, len(nodeCommunities))
+	for n, cs := range nodeCommunities {
+		seen := make(map[int]struct{})
+		var newCS []int
+		for _, ci := range cs {
+			if newIdx, ok := remap[ci]; ok {
+				if _, dup := seen[newIdx]; !dup {
+					newCS = append(newCS, newIdx)
+					seen[newIdx] = struct{}{}
+				}
+			}
+		}
+		if len(newCS) > 0 {
+			newNodeComm[n] = newCS
+		}
+	}
+
+	return OverlappingCommunityResult{
+		Communities:     compacted,
+		NodeCommunities: newNodeComm,
+	}, nil
 }
