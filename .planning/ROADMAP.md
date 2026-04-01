@@ -6,6 +6,7 @@
 - ✅ **v1.1 Online Community Detection** — Phase 05 (shipped 2026-03-30)
 - ✅ **v1.2 Overlapping Community Detection** — Phases 06-09 (shipped 2026-03-31)
 - ✅ **v1.3 Online Ego-Splitting** — Phases 10-13 (shipped 2026-03-31)
+- ✅ **graph-core-opt Graph Core & Leiden Performance** — Phases 01-03 (shipped 2026-04-01)
 
 ## Phases
 
@@ -76,45 +77,13 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 02: Leiden PCG benchmark regression fix | graph-core-opt | 1/1 | Complete | 2026-04-01 |
 | 03: Leiden BFS refinement speed: linear grouping + CSR adjacency | graph-core-opt | 1/1 | Complete | 2026-04-01 |
 
-### Phase 1: optimize graph core
+<details>
+<summary>✅ graph-core-opt Graph Core & Leiden Performance (Phases 01-03) — SHIPPED 2026-04-01</summary>
 
-**Goal:** Reduce allocations and improve throughput in the core graph hot paths — Nodes() caching, CSR adjacency view, BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pooling, rand.Rand reuse, and dead code removal (deltaQ, Tolerance field).
-**Requirements**:
-- Louvain 10K allocs/op drops from ~48 773 to ≤ 50 500 (measured ~45 880 avg; +10% margin; seed 110 PCG 4-pass run)
-- Louvain 10K ns/op improves by ≥ 10% (baseline 63.5ms, measured ~56.1ms avg = 11.7% improvement; seed 110 PCG 4-pass run)
-- All existing tests pass
-- No public API signature changes
-**Depends on:** Phase 0 (all v1.3 work complete)
-**Plans:** 4/4 plans complete
+- [x] Phase 01: optimize graph core (4/4 plans) — completed 2026-04-01
+- [x] Phase 02: Leiden PCG benchmark regression fix (1/1 plan) — completed 2026-04-01
+- [x] Phase 03: Leiden BFS refinement speed: linear grouping + CSR adjacency (1/1 plan) — completed 2026-04-01
 
-Plans:
-- [x] 01-01-PLAN.md — Nodes() cache, math/rand/v2 migration, dead code removal
-- [x] 01-02-PLAN.md — BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pool
-- [x] 01-03-PLAN.md — CSR adjacency view for phase1 inner loop
-- [x] 01-04-PLAN.md — Gap closure: re-seed benchmark for PCG convergence + calibrate targets
+Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
-### Phase 2: Leiden PCG benchmark regression fix
-
-**Goal:** Eliminate per-community map allocations in refinePartition — the dominant Leiden-specific allocation source — to bring Leiden 10K allocs/op to Louvain parity.
-**Requirements**:
-- Leiden 10K allocs/op drops from 58,220 to ≤ 46,500 (Louvain parity + 10% margin; seed 110 PCG 4-pass)
-- All existing tests pass
-- No public API signature changes
-**Depends on:** Phase 1
-**Plans:** 1/1 plans complete
-
-Plans:
-- [x] 02-01-PLAN.md — refinePartitionInPlace: CSR-indexed bool scratch + sorted pairs (eliminates all per-community allocs)
-
-### Phase 3: Leiden BFS refinement speed: linear grouping + CSR adjacency
-
-**Goal:** Reduce ns/op overhead in refinePartitionInPlace by replacing O(N log N) comparison sort with O(N) counting sort, and replacing g.Neighbors() adjacency map lookup with csr.adjByIdx[] direct slice access.
-**Requirements**:
-- Leiden 10K ns/op improves vs Phase 2 baseline (~60.4ms)
-- All existing tests pass
-- No public API signature changes
-**Depends on:** Phase 2
-**Plans:** 1/1 plans complete
-
-Plans:
-- [x] 03-01-PLAN.md — counting sort + CSR BFS adjacency (−2.2% ns/op, Leiden 10K 60.4ms→59.1ms)
+</details>

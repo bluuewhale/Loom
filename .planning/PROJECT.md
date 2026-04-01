@@ -8,13 +8,29 @@
 
 개발자가 GraphRAG 파이프라인을 Go로 구현할 때 필요한 그래프 알고리즘을 교체 가능한 인터페이스로 빠르게 가져다 쓸 수 있어야 한다.
 
-## Current State (v1.3 — SHIPPED 2026-03-31)
+## Current State (graph-core-opt — SHIPPED 2026-04-01)
+
+**graph-core-opt shipped — Graph Core & Leiden Performance fully optimized.**
+
+See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
+
+**Key deliverables (graph-core-opt):**
+- `Nodes()` sorted-slice cache + mutation invalidation (`AddNode`/`AddEdge` nil the cache)
+- `csrGraph` zero-copy adjacency view — `buildCSR` builds direct slice refs, used in Louvain/Leiden hot loops
+- `math/rand/v2` PCG migration — zero-alloc reseed via `pcg.Seed()` in `louvainState`/`leidenState`
+- `refinePartitionInPlace` — eliminates all per-community map allocs in Leiden BFS refinement
+- Counting sort + int32 CSR BFS queue in `refinePartitionInPlace` — O(N) group sort, zero map lookups
+- **Louvain 10K: 63.5ms → 55.1ms (−13.2% ns/op), 48,773 → 45,909 allocs/op (−5.9%)**
+- **Leiden 10K: 58,220 → 45,871 allocs/op (−21.3%), 60.4ms → 59.1ms (−2.2% ns/op)**
+- 7,220 total LOC Go | 3 phases | 6 plans
+
+<details>
+<summary>v1.3 codebase snapshot (archived)</summary>
 
 **v1.3 shipped — Online Ego-Splitting (Incremental Update) fully implemented and archived.**
 
 See `.planning/milestones/v1.3-ROADMAP.md` for full phase details.
 
-**Key deliverables (v1.3):**
 - `OnlineOverlappingCommunityDetector` interface + `NewOnlineEgoSplitting` constructor
 - `Update(g *Graph, delta GraphDelta, prior OverlappingCommunityResult)` — incremental update API
 - `computeAffected` scopes ego-net rebuilds to affected nodes only (new nodes + 1-hop neighbors)
@@ -23,6 +39,8 @@ See `.planning/milestones/v1.3-ROADMAP.md` for full phase details.
 - 29x speedup for 1-node addition vs full `Detect()` (ONLINE-08 ≥10x target)
 - 6-invariant `assertResultInvariants` + race-safe concurrent `Update()` (`go test -race` passes)
 - 942 lines ego_splitting.go | 1713 lines tests | 4 phases | 6 plans
+
+</details>
 
 <details>
 <summary>v1.2 codebase snapshot (archived)</summary>
@@ -85,6 +103,19 @@ See `.planning/milestones/v1.2-ROADMAP.md` for full phase details.
 - ✓ BenchmarkUpdate1Node ≥10x speedup (29x measured) — v1.3 Phase 12
 - ✓ Result invariants (6-invariant assertResultInvariants) + `go test -race` concurrent safety — v1.3 Phase 13
 
+### Validated — graph-core-opt
+
+- ✓ `Nodes()` sorted-slice cache with AddNode/AddEdge invalidation — graph-core-opt Phase 01
+- ✓ `csrGraph` zero-copy adjacency view — direct slice refs, used in phase1 + refinePartitionInPlace — graph-core-opt Phase 01
+- ✓ `math/rand/v2` PCG migration — zero-alloc `pcg.Seed()` reseed in louvainState + leidenState — graph-core-opt Phase 01
+- ✓ `sync.Pool` for Subgraph seen-map — eliminates per-ego-net map alloc — graph-core-opt Phase 01
+- ✓ Louvain 10K allocs/op ≤ 50,500 (measured avg ~45,909, −5.9% vs 48,773 baseline) — graph-core-opt Phase 01
+- ✓ Louvain 10K ns/op ≥ 10% improvement (measured −13.2%, 63.5ms → 55.1ms) — graph-core-opt Phase 01
+- ✓ `refinePartitionInPlace` — CSR-indexed bool scratch + sorted commNodePairs eliminates all per-community map allocs — graph-core-opt Phase 02
+- ✓ Leiden 10K allocs/op ≤ 46,500 (measured avg ~45,871, −21.3% vs 58,220 baseline) — graph-core-opt Phase 02
+- ✓ Counting sort (O(N) with sparse reset) + int32 CSR BFS queue in refinePartitionInPlace — graph-core-opt Phase 03
+- ✓ Leiden 10K ns/op improvement vs Phase 02 baseline (60.4ms → 59.1ms, −2.2%) — graph-core-opt Phase 03
+
 ### Out of Scope
 
 - 그래프 DB 커넥터 (Neo4j, Memgraph 등) — I/O 레이어는 라이브러리 외부 책임
@@ -127,10 +158,18 @@ See `.planning/milestones/v1.2-ROADMAP.md` for full phase details.
 | ONLINE-09 10x guard replaced with 1.5x regression guard | 10x impossible on 34-node KarateClub: global Louvain ~200µs dominates after any 1-edge addition | ⚠ Revisit — meaningful speedup only measurable on larger graphs; document per fixture |
 | `raceEnabled` build-tag pattern for timing tests | race detector adds ~3x overhead, invalidating timing assertions | ✓ Good — `//go:build race` / `//go:build !race` pair; clean separation |
 | `assertResultInvariants` as shared test helper | reusable invariant checker for `Detect()` and `Update()` results | ✓ Good — 6 sub-cases cover all delta paths; catches regression regressions early |
+| Seed 110 for 10K benchmarks (PCG-compatible) | seed=1 gives 5 PCG passes vs 4 old-rand; seed 110 gives 4 passes, closest topology to seed=1 | ✓ Good — deterministic benchmark baseline |
+| Zero-copy CSR (direct refs to g.adjacency slices) | Avoids per-node slice copy overhead; idxBuf shuffle instead of map lookup in phase1 | ✓ Good — significant alloc reduction |
+| PCG zero-alloc reseed via pcg.Seed() in pool | New(src) allocates; Seed() reuses existing PCG — 2-3 allocs eliminated per state reset | ✓ Good — pool lifecycle confirmed working |
+| buildSupergraph single-pass dedup reverted | Changed adjacency insertion order → accuracy regressions; canonical-key + /2.0 retained | ⚠ Revisit — deterministic edge ordering needed before retry |
+| idxBuf NOT threaded into Leiden louvainState wrapper | leidenState has no idxBuf field; adding it was deferred as low-priority tech debt | ⚠ Revisit — one make([]int32, N) per Leiden phase1 pass |
+| commNodePair + CSR-indexed []bool scratch in refinePartitionInPlace | Replaces per-community inComm/visited maps; lazy-grown scratch slices | ✓ Good — −21.3% allocs, Louvain parity achieved |
+| Counting sort with commSeenComms sparse reset | O(N) vs O(N log N); avoids clearing full commCountScratch on every community | ✓ Good — −2.2% ns/op Leiden improvement |
+
 
 ## Evolution
 
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-04-01 — Phase 3 complete: Leiden BFS refinement (counting sort + CSR adjacency). Leiden 10K 60.4ms→59.1ms (−2.2%), Louvain gap 7.5%→5.2%. All 3 milestone phases verified.*
+*Last updated: 2026-04-01 — graph-core-opt milestone shipped. Louvain 10K −13.2% ns/op, −5.9% allocs. Leiden 10K −21.3% allocs, −2.2% ns/op. 3 phases, 6 plans complete.*

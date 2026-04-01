@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: verifying
 stopped_at: "Completed 03-01-PLAN.md — counting sort + CSR BFS adjacency: Leiden 10K 60.4ms→59.1ms (−2.2%)"
-last_updated: "2026-04-01T10:19:32.547Z"
+last_updated: "2026-04-01T10:53:31.604Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 5
