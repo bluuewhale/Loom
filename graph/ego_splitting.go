@@ -3,6 +3,7 @@ package graph
 import (
 	"errors"
 	"runtime"
+	"sort"
 	"sync"
 )
 
@@ -159,24 +160,33 @@ func (d *egoSplittingDetector) Detect(g *Graph) (OverlappingCommunityResult, err
 // but the GlobalDetector receives an initial partition derived from
 // priorNodeCommunities (original NodeID → list of prior community indices).
 //
-// Warm-start projection: for each original node v with personas keyed by
-// local-community index 0, 1, …, k-1, persona for local community i is
-// assigned priorNodeCommunities[v][i % len(prior)]. Nodes absent from
-// priorNodeCommunities receive fresh singleton community IDs.
+// Warm-start projection: for each original node v, the local-community keys
+// produced by LocalDetector are sorted and mapped positionally onto
+// priorNodeCommunities[v] via modulo (key[i] → prior[i % len(prior)]). Because
+// LocalDetector community IDs are opaque integers that may not be 0-based or
+// contiguous, the mapping is performed on the sorted key order to ensure
+// determinism. Nodes absent from priorNodeCommunities receive fresh singleton
+// community IDs.
+//
+// priorNodeCommunities should originate from a previous detector run on a
+// structurally identical or very similar graph (e.g. after incremental node
+// additions). Using a prior from a structurally different graph may degrade
+// rather than improve GlobalDetector convergence, because community IDs are
+// graph-run-specific integers with no cross-graph meaning.
 //
 // If priorNodeCommunities is nil or empty, falls back to Detect().
 func (d *egoSplittingDetector) DetectWithPrior(
 	g *Graph,
 	priorNodeCommunities map[NodeID][]int,
 ) (OverlappingCommunityResult, error) {
+	if len(priorNodeCommunities) == 0 {
+		return d.Detect(g)
+	}
 	if g.IsDirected() {
 		return OverlappingCommunityResult{}, ErrDirectedNotSupported
 	}
 	if g.NodeCount() == 0 {
 		return OverlappingCommunityResult{}, ErrEmptyGraph
-	}
-	if len(priorNodeCommunities) == 0 {
-		return d.Detect(g)
 	}
 
 	// Step 1: Full persona graph rebuild (same as Detect).
@@ -196,8 +206,15 @@ func (d *egoSplittingDetector) DetectWithPrior(
 		if !hasPrior || len(priorComms) == 0 {
 			continue // handled below as singletons
 		}
-		for localComm, personaID := range commPersonas {
-			warmPartition[personaID] = priorComms[localComm%len(priorComms)]
+		// Sort local-community keys for deterministic positional mapping;
+		// LocalDetector IDs are opaque integers that may be non-contiguous.
+		localKeys := make([]int, 0, len(commPersonas))
+		for lc := range commPersonas {
+			localKeys = append(localKeys, lc)
+		}
+		sort.Ints(localKeys)
+		for i, lc := range localKeys {
+			warmPartition[commPersonas[lc]] = priorComms[i%len(priorComms)]
 		}
 	}
 	// Assign fresh singleton IDs to personas with no prior coverage.
@@ -930,7 +947,7 @@ func compactCommunities(
 	// same original node land in the same global community.
 	for node, comms := range nodeCommunities {
 		seen := make(map[int]struct{}, len(comms))
-		unique := comms[:0]
+		unique := make([]int, 0, len(comms))
 		for _, c := range comms {
 			if _, ok := seen[c]; !ok {
 				seen[c] = struct{}{}
