@@ -74,6 +74,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 | 01: optimize graph core | graph-core-opt | 4/4 | Complete | 2026-04-01 |
 | 02: Leiden PCG benchmark regression fix | graph-core-opt | 1/1 | Complete | 2026-04-01 |
+| 03: Leiden BFS refinement speed: linear grouping + CSR adjacency | graph-core-opt | 1/1 | Complete | 2026-04-01 |
 
 ### Phase 1: optimize graph core
 
