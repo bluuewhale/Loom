@@ -6,6 +6,7 @@
 - ✅ **v1.1 Online Community Detection** — Phase 05 (shipped 2026-03-30)
 - ✅ **v1.2 Overlapping Community Detection** — Phases 06-09 (shipped 2026-03-31)
 - ✅ **v1.3 Online Ego-Splitting** — Phases 10-13 (shipped 2026-03-31)
+- ✅ **graph-core-opt Graph Core & Leiden Performance** — Phases 01-03 (shipped 2026-04-01)
 
 ## Phases
 
@@ -72,12 +73,17 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 12: Parallel Ego-Net Construction and Performance | v1.3 | 2/2 | Complete | 2026-03-31 |
 | 13: Correctness Hardening and Race Safety | v1.3 | 1/1 | Complete | 2026-03-31 |
 
-### Phase 1: optimize graph core
+| 01: optimize graph core | graph-core-opt | 4/4 | Complete | 2026-04-01 |
+| 02: Leiden PCG benchmark regression fix | graph-core-opt | 1/1 | Complete | 2026-04-01 |
+| 03: Leiden BFS refinement speed: linear grouping + CSR adjacency | graph-core-opt | 1/1 | Complete | 2026-04-01 |
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 0
-**Plans:** 0 plans
+<details>
+<summary>✅ graph-core-opt Graph Core & Leiden Performance (Phases 01-03) — SHIPPED 2026-04-01</summary>
 
-Plans:
-- [ ] TBD (run /gsd:plan-phase 1 to break down)
+- [x] Phase 01: optimize graph core (4/4 plans) — completed 2026-04-01
+- [x] Phase 02: Leiden PCG benchmark regression fix (1/1 plan) — completed 2026-04-01
+- [x] Phase 03: Leiden BFS refinement speed: linear grouping + CSR adjacency (1/1 plan) — completed 2026-04-01
+
+Full details: `.planning/milestones/v1.0-ROADMAP.md`
+
+</details>

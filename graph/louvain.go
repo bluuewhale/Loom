@@ -47,7 +47,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		resolution = 1.0
 	}
 	maxPasses := d.opts.MaxPasses // 0 = unlimited
-	seed := d.opts.Seed           // 0 = random (handled inside newLouvainState)
+	seed := d.opts.Seed           // 0 = random (handled inside acquireLouvainState)
 
 	// nodeMapping maps each original NodeID to its corresponding supernode NodeID
 	// in the current supergraph. Initially the identity mapping.
@@ -58,6 +58,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	}
 
 	currentGraph := g
+	csr := buildCSR(currentGraph)
 	totalPasses := 0
 	totalMoves := 0
 
@@ -85,7 +86,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		} else {
 			state.reset(currentGraph, seed, nil)
 		}
-		moves := phase1(currentGraph, state, resolution, currentGraph.TotalWeight())
+		moves := phase1(currentGraph, &csr, state, resolution, currentGraph.TotalWeight())
 		totalPasses++
 		totalMoves += moves
 
@@ -135,6 +136,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		nodeMapping = newMapping
 
 		currentGraph = newGraph
+		csr = buildCSR(currentGraph)
 		// If the supergraph has collapsed to a single node, we've fully converged.
 		if currentGraph.NodeCount() <= 1 {
 			break
@@ -168,19 +170,31 @@ func reconstructPartition(origNodes []NodeID, nodeMapping map[NodeID]NodeID, sup
 // phase1 performs one full pass of local moves (Phase 1 of Louvain).
 // Iterates over all nodes in shuffled order, moving each to the neighboring
 // community with the highest modularity gain. Returns the number of moves made.
-func phase1(g *Graph, state *louvainState, resolution, m float64) int {
-	nodes := g.Nodes()
-	// Sort by NodeID before shuffling so the RNG seed is the sole source of
-	// traversal randomness (map iteration order is intentionally non-deterministic in Go).
-	slices.Sort(nodes)
-	state.rng.Shuffle(len(nodes), func(i, j int) {
-		nodes[i], nodes[j] = nodes[j], nodes[i]
+// csr provides O(1) indexed neighbor lookups; phase1 shuffles dense indices
+// to avoid the idToIdx map lookup in the hot loop.
+func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64) int {
+	n := len(csr.nodeIDs)
+	// Shuffle dense indices [0..n-1] so we can use idx directly for csr lookups,
+	// deriving NodeID via csr.nodeIDs[idx]. Avoids idToIdx map lookup per node.
+	indices := state.idxBuf[:0]
+	if cap(indices) >= n {
+		indices = indices[:n]
+	} else {
+		indices = make([]int32, n)
+		state.idxBuf = indices
+	}
+	for i := range indices {
+		indices[i] = int32(i)
+	}
+	state.rng.Shuffle(n, func(i, j int) {
+		indices[i], indices[j] = indices[j], indices[i]
 	})
 
 	moves := 0
-	for _, n := range nodes {
+	for _, idx := range indices {
+		n := csr.nodeIDs[idx]
 		currentComm := state.partition[n]
-		ki := g.Strength(n)
+		ki := csr.strength(idx)
 
 		// Remove n from its current community (temporarily).
 		state.commStr[currentComm] -= ki
@@ -201,7 +215,7 @@ func phase1(g *Graph, state *louvainState, resolution, m float64) int {
 			state.neighborDirty = append(state.neighborDirty, NodeID(currentComm))
 			state.candidateBuf = append(state.candidateBuf, currentComm)
 		}
-		for _, e := range g.Neighbors(n) {
+		for _, e := range csr.neighbors(idx) {
 			nc := state.partition[e.To]
 			key := NodeID(nc)
 			if _, seen := state.neighborBuf[key]; !seen {
@@ -257,18 +271,6 @@ func phase1(g *Graph, state *louvainState, resolution, m float64) int {
 	return moves
 }
 
-// deltaQ computes the modularity gain of placing node n into community comm.
-// Formula: kiIn/m - resolution * (sigTot/(2m)) * (ki/(2m))
-// where m = TotalWeight(), sigTot = commStr[comm] (excluding n's contribution), kiIn = edge weight from n to comm.
-func deltaQ(g *Graph, n NodeID, comm int, partition map[NodeID]int,
-	commStr map[int]float64, resolution, m float64) float64 {
-	kiIn := g.WeightToComm(n, comm, partition)
-	sigTot := commStr[comm]
-	ki := g.Strength(n)
-	twoM := 2.0 * m
-	return kiIn/m - resolution*(sigTot/twoM)*(ki/twoM)
-}
-
 // buildSupergraph compresses the current graph by merging each community into a supernode.
 // Returns:
 //   - newGraph: undirected weighted graph with one node per community
@@ -301,11 +303,14 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 		}
 	}
 
-	// Accumulate inter-community edge weights using canonical (min,max) key to avoid double-counting.
+	// Accumulate inter-community edge weights using canonical (min,max) super-node key.
+	// Both directions of each undirected edge are visited; divide accumulated weight by 2
+	// when writing so each edge appears once at the correct weight.
+	// Maps are pre-sized to reduce rehash overhead.
 	type edgeKey struct{ a, b NodeID }
-	interEdges := make(map[edgeKey]float64)
+	interEdges := make(map[edgeKey]float64, g.EdgeCount())
 	// Intra-community edges become self-loops on the supernode.
-	selfLoops := make(map[NodeID]float64)
+	selfLoops := make(map[NodeID]float64, len(commList))
 
 	for _, n := range g.Nodes() {
 		superN := commToSuper[partition[n]]
@@ -315,7 +320,7 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 				// Each undirected intra-community edge appears in adjacency from both endpoints.
 				selfLoops[superN] += e.Weight
 			} else {
-				// Canonicalize key so (a,b) and (b,a) are the same.
+				// Canonicalize key so (a,b) and (b,a) map to the same entry.
 				a, b := superN, superNeighbor
 				if a > b {
 					a, b = b, a
@@ -328,14 +333,31 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 	newGraph := NewGraph(false)
 
 	// Self-loops: each undirected intra-edge counted twice in adjacency → divide by 2.
-	for super, w := range selfLoops {
-		newGraph.AddEdge(super, super, w/2.0)
+	// Write in sorted supernode order for deterministic adjacency layout.
+	selfLoopNodes := make([]NodeID, 0, len(selfLoops))
+	for super := range selfLoops {
+		selfLoopNodes = append(selfLoopNodes, super)
+	}
+	slices.Sort(selfLoopNodes)
+	for _, super := range selfLoopNodes {
+		newGraph.AddEdge(super, super, selfLoops[super]/2.0)
 	}
 
 	// Inter-community edges: each undirected edge between communities was counted from both
 	// endpoints (a→b and b→a), so divide accumulated weight by 2.
-	for key, w := range interEdges {
-		newGraph.AddEdge(key.a, key.b, w/2.0)
+	// Write in sorted key order for deterministic adjacency layout.
+	interKeys := make([]edgeKey, 0, len(interEdges))
+	for key := range interEdges {
+		interKeys = append(interKeys, key)
+	}
+	slices.SortFunc(interKeys, func(x, y edgeKey) int {
+		if x.a != y.a {
+			return int(x.a) - int(y.a)
+		}
+		return int(x.b) - int(y.b)
+	})
+	for _, key := range interKeys {
+		newGraph.AddEdge(key.a, key.b, interEdges[key]/2.0)
 	}
 
 	// Ensure all supernodes exist even if isolated (no edges).

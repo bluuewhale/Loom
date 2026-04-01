@@ -1,5 +1,10 @@
 package graph
 
+import (
+	"slices"
+	"sync"
+)
+
 // NodeID is a type-safe identifier for graph nodes.
 type NodeID int
 
@@ -17,6 +22,7 @@ type Graph struct {
 	nodes       map[NodeID]float64 // nodeID -> node weight (default 1.0)
 	adjacency   map[NodeID][]Edge  // nodeID -> neighbor edges
 	totalWeight float64            // sum of distinct edge weights
+	sortedNodes []NodeID           // cache; nil when stale
 }
 
 // NewGraph creates a new empty graph. If directed is true, edges are one-way;
@@ -29,6 +35,16 @@ func NewGraph(directed bool) *Graph {
 	}
 }
 
+// subgraphSeenPool reuses the edge-dedup map for Subgraph calls to reduce
+// allocation pressure when Subgraph is called repeatedly (e.g., 10K calls
+// during EgoSplitting buildPersonaGraph).
+var subgraphSeenPool = sync.Pool{
+	New: func() any {
+		m := make(map[[2]NodeID]struct{}, 32)
+		return &m
+	},
+}
+
 // AddNode adds a node with the given weight. If the node already exists, this is a no-op.
 func (g *Graph) AddNode(id NodeID, weight float64) {
 	if _, exists := g.nodes[id]; !exists {
@@ -37,6 +53,7 @@ func (g *Graph) AddNode(id NodeID, weight float64) {
 		if _, ok := g.adjacency[id]; !ok {
 			g.adjacency[id] = nil
 		}
+		g.sortedNodes = nil
 	}
 }
 
@@ -68,6 +85,7 @@ func (g *Graph) AddEdge(from, to NodeID, weight float64) {
 
 	// totalWeight counts each distinct edge once
 	g.totalWeight += weight
+	g.sortedNodes = nil
 }
 
 // Neighbors returns the list of edges from node id. Returns nil if node has no edges.
@@ -75,12 +93,19 @@ func (g *Graph) Neighbors(id NodeID) []Edge {
 	return g.adjacency[id]
 }
 
-// Nodes returns all node IDs in the graph (order not guaranteed).
+// Nodes returns all node IDs in sorted order. The returned slice is cached
+// internally and MUST NOT be modified by callers. The cache is invalidated
+// automatically on AddNode/AddEdge.
 func (g *Graph) Nodes() []NodeID {
+	if g.sortedNodes != nil {
+		return g.sortedNodes
+	}
 	ids := make([]NodeID, 0, len(g.nodes))
 	for id := range g.nodes {
 		ids = append(ids, id)
 	}
+	slices.Sort(ids)
+	g.sortedNodes = ids
 	return ids
 }
 
@@ -201,7 +226,15 @@ func (g *Graph) Subgraph(nodeIDs []NodeID) *Graph {
 
 	// Add edges where both endpoints are in nodeSet.
 	// For undirected graphs, we process each edge only once to avoid double-counting totalWeight.
-	seen := make(map[[2]NodeID]struct{})
+	seenPtr := subgraphSeenPool.Get().(*map[[2]NodeID]struct{})
+	seen := *seenPtr
+	// Clear reused map from prior call.
+	for k := range seen {
+		delete(seen, k)
+	}
+	defer func() {
+		subgraphSeenPool.Put(seenPtr)
+	}()
 	for _, from := range nodeIDs {
 		for _, e := range g.adjacency[from] {
 			if _, inSet := nodeSet[e.To]; !inSet {
@@ -242,6 +275,8 @@ func (g *Graph) WeightToComm(n NodeID, comm int, partition map[NodeID]int) float
 }
 
 // CommStrength returns the sum of Strength(n) for all nodes n in community comm.
+// O(n): iterates the full partition. Do not call inside inner loops — use a
+// precomputed commStr cache instead.
 func (g *Graph) CommStrength(comm int, partition map[NodeID]int) float64 {
 	var total float64
 	for n, c := range partition {
