@@ -133,3 +133,24 @@ func perturbGraph(g *Graph, nRemove, nAdd int, seed int64) *Graph {
 	}
 	return pg
 }
+
+// cloneWithAdditions returns a copy of g with the given new nodes and edges applied.
+// Intended for benchmark setup: creates the "post-update" graph state used alongside a GraphDelta.
+func cloneWithAdditions(g *Graph, newNodes []NodeID, newEdges []DeltaEdge) *Graph {
+	out := NewGraph(false)
+	for _, n := range g.Nodes() {
+		out.AddNode(n, 1.0)
+		for _, e := range g.Neighbors(n) {
+			if n < e.To {
+				out.AddEdge(n, e.To, e.Weight)
+			}
+		}
+	}
+	for _, n := range newNodes {
+		out.AddNode(n, 1.0)
+	}
+	for _, e := range newEdges {
+		out.AddEdge(e.From, e.To, e.Weight)
+	}
+	return out
+}

@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: verifying
-stopped_at: "Completed 09-01-PLAN.md — edge-case hardening: ErrEmptyGraph sentinel + 4 edge-case tests"
-last_updated: "2026-03-30T08:38:00.738Z"
-last_activity: 2026-03-30
+milestone: v1.3
+milestone_name: Online Ego-Splitting
+status: complete
+stopped_at: v1.3 milestone archived — ready for next milestone
+last_updated: "2026-03-31T07:30:00.000Z"
+last_activity: 2026-03-31
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 6
   completed_plans: 6
-  percent: 0
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 개발자가 GraphRAG 파이프라인을 Go로 구현할 수 있는 교체 가능한 인터페이스로 그래프 알고리즘을 빠르게 가져다 쓸 수 있어야 한다.
-**Current focus:** Phase 09 — edge-cases-and-hardening
+**Current focus:** Phase 12 — parallel-ego-net-construction-and-performance
 
 ## Current Position
 
-Phase: 09
+Phase: 14
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-03-30
+Last activity: 2026-03-31
 
 Progress: [____________] 0% (0/4 phases complete)
 
@@ -64,8 +64,16 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 05-warm-start P02 | 10min | 2 tasks | 3 files |
 | Phase 08-full-detect-pipeline-accuracy-performance P02 | 5 min | 2 tasks | 2 files |
 | Phase 09-edge-cases-and-hardening P01 | 3min | 2 tasks | 2 files |
+| Phase 10-online-api-contract P01 | 1min | 1 tasks | 2 files |
+| Phase 11-incremental-recomputation-core P01 | 5min | 2 tasks | 2 files |
+| Phase 11 P02 | 7 | 2 tasks | 2 files |
+| Phase 12 P01 | 30 | 4 tasks | 6 files |
+| Phase 12 P02 | 10min | 2 tasks | 3 files |
+| Phase 13 P01 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
 
 ### Decisions
 
@@ -90,6 +98,19 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 05-warm-start]: Benchmark setup (cold detect + perturbGraph) before b.ResetTimer(); only warm Detect measured in loop (Pitfall 6)
 - [Phase 09-edge-cases-and-hardening]: ErrEmptyGraph guard placed after IsDirected check — mirrors ErrDirectedNotSupported pattern
 - [Phase 09-edge-cases-and-hardening]: Star topology test asserts persona count <= degree(center) — Louvain assigns each disconnected leaf singleton community, so center gets 5 personas (bounded, not panic)
+- [Phase 10-online-api-contract]: Update() empty-delta returns prior by value with 0 allocs (no deep-copy)
+- [Phase 10-online-api-contract]: NewOnlineEgoSplitting reuses *egoSplittingDetector — no new struct needed
+- [Phase 10-online-api-contract]: Non-empty delta falls back to Detect() in Phase 10; Phase 11 replaces with incremental recomputation
+- [Phase 11-incremental-recomputation-core]: buildPersonaGraph returns partitions as 4th value — exposes ego-net partitions to Detect() carry-forward without a separate pass
+- [Phase 11-incremental-recomputation-core]: warmStartedDetector falls back to d for unknown types — safe extension point for future detector implementations
+- [Phase 11]: DeltaEdge introduced as separate type from Edge — Edge only has To+Weight (relative to source), DeltaEdge needs both endpoints to stand alone in a delta
+- [Phase 11]: buildPersonaGraphIncremental rebuilds full persona graph edges O(|E|) — only ego-net detection is O(affected), unavoidable without RemoveNode
+- [Phase 11]: PersonaID collision check in tests covers only NEW allocations — prior PersonaIDs carried from before a node was added are allowed to share numeric value
+- [Phase 12]: GlobalDetector defaults MaxPasses=1: sparse persona graph converges in single pass, avoids 1s supergraph compression overhead on 94K-node graph
+- [Phase 12]: ONLINE-09 10x speedup not achievable on 34-node KarateClub: global Louvain dominates after 1-edge addition; TestUpdate1EdgeSpeedup threshold set to 1.5x regression guard
+- [Phase 12]: raceEnabled build-tag pattern for performance tests: race detector adds ~3x overhead, invalidating timing assertions
+- [Phase 13]: assertResultInvariants enforces 3 properties: NodeCommunities coverage, index bounds, bidirectional consistency — reusable helper for future invariant tests
+- [Phase 13]: TestEgoSplittingConcurrentUpdate uses 8 goroutines x 3 updates on independent detector instances — each goroutine owns all state so no shared mutable data
 
 ### v1.2 Critical Pitfalls (from research)
 
@@ -109,7 +130,6 @@ Progress: [____________] 0% (0/4 phases complete)
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260330-jq7 | warm-start 테스트 누락 사항 추가 | 2026-03-30 | 3390928 | [260330-jq7-warm-start](.planning/quick/260330-jq7-warm-start/) |
-| 260331-j5u | go-compare: add go-louvain + leiden-go benchmarks + README table | 2026-03-31 | 6726c54 | [260331-j5u-go-compare-go-louvain-leiden-go-readme](.planning/quick/260331-j5u-go-compare-go-louvain-leiden-go-readme/) |
 
 ### Blockers/Concerns
 
@@ -118,7 +138,7 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ## Session Continuity
 
-Last session: 2026-03-31T04:51:34Z
-Stopped at: Completed quick task 260331-j5u — go-compare go-louvain leiden-go README
+Last session: 2026-03-31T06:59:28.868Z
+Stopped at: Completed 13-01-PLAN.md — Correctness Hardening and Race Safety
 Resume file: None
-Next action: `/gsd:plan-phase 6`
+Next action: `/gsd:verify-work 12`
