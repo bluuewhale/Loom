@@ -39,7 +39,8 @@ type MergeOptions struct {
 	Strategy MergeStrategy
 
 	// Resolution scales the modularity penalty term (MergeByModularity only).
-	// Zero value treated as 1.0.
+	// Zero value treated as 1.0. To express a resolution near zero, use a
+	// small positive value (e.g. 1e-9); exactly 0.0 cannot be expressed.
 	Resolution float64
 }
 
@@ -54,7 +55,7 @@ func validateMergeOptions(opts MergeOptions) error {
 // mergeThreshold returns the effective node-count threshold from opts and totalNodes.
 func mergeThreshold(opts MergeOptions, totalNodes int) int {
 	threshold := opts.MinSize
-	if frac := int(math.Round(opts.MinFraction * float64(totalNodes))); frac > threshold {
+	if frac := int(math.Ceil(opts.MinFraction * float64(totalNodes))); frac > threshold {
 		threshold = frac
 	}
 	return threshold
@@ -128,6 +129,9 @@ func MergeSmallCommunities(g *Graph, result CommunityResult, opts MergeOptions) 
 		if !ok {
 			continue // already merged away
 		}
+		if len(nodes) >= threshold {
+			continue // grew past threshold after absorbing an earlier candidate
+		}
 		target, found := findMergeTarget(g, nodes, cand.comm, partition, opts)
 		if !found {
 			continue // isolated community — leave in place
@@ -158,6 +162,8 @@ func copyPartition(p map[NodeID]int) map[NodeID]int {
 }
 
 // compactPartition remaps community IDs to 0-indexed contiguous integers.
+// The assignment of new IDs to surviving communities is non-deterministic
+// (map iteration order), so callers must not rely on specific ID values.
 func compactPartition(p map[NodeID]int) map[NodeID]int {
 	remap := make(map[int]int)
 	next := 0
@@ -189,10 +195,11 @@ func findMergeTarget(g *Graph, nodes []NodeID, srcComm int, partition map[NodeID
 	neighborWeight := make(map[int]float64)
 	for _, n := range nodes {
 		for _, e := range g.Neighbors(n) {
-			c := partition[e.To]
-			if c != srcComm {
-				neighborWeight[c] += e.Weight
+			c, ok := partition[e.To]
+			if !ok || c == srcComm {
+				continue
 			}
+			neighborWeight[c] += e.Weight
 		}
 	}
 	if len(neighborWeight) == 0 {
@@ -304,7 +311,7 @@ func MergeSmallOverlappingCommunities(g *Graph, result OverlappingCommunityResul
 		overlap := make(map[int]int)
 		for _, n := range src {
 			for _, ci := range nodeCommunities[n] {
-				if ci != cand.idx {
+				if ci != cand.idx && communities[ci] != nil {
 					overlap[ci]++
 				}
 			}
@@ -326,7 +333,7 @@ func MergeSmallOverlappingCommunities(g *Graph, result OverlappingCommunityResul
 			for _, n := range src {
 				for _, e := range g.Neighbors(n) {
 					for _, ci := range nodeCommunities[e.To] {
-						if ci != cand.idx {
+						if ci != cand.idx && communities[ci] != nil {
 							connWeight[ci] += e.Weight
 						}
 					}
