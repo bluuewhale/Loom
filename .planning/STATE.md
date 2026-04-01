@@ -75,6 +75,8 @@ Progress: [____________] 0% (0/4 phases complete)
 
 ### Roadmap Evolution
 
+- Phase 1 added: optimize graph core
+
 ### Decisions
 
 - [Phase 01]: Single `package graph` — no sub-packages; all types in one package

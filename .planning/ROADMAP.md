@@ -71,3 +71,13 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 11: Incremental Recomputation Core | v1.3 | 2/2 | Complete | 2026-03-31 |
 | 12: Parallel Ego-Net Construction and Performance | v1.3 | 2/2 | Complete | 2026-03-31 |
 | 13: Correctness Hardening and Race Safety | v1.3 | 1/1 | Complete | 2026-03-31 |
+
+### Phase 1: optimize graph core
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 0
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 1 to break down)
