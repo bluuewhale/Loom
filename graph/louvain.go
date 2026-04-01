@@ -169,10 +169,10 @@ func reconstructPartition(origNodes []NodeID, nodeMapping map[NodeID]NodeID, sup
 // Iterates over all nodes in shuffled order, moving each to the neighboring
 // community with the highest modularity gain. Returns the number of moves made.
 func phase1(g *Graph, state *louvainState, resolution, m float64) int {
-	nodes := g.Nodes()
-	// Sort by NodeID before shuffling so the RNG seed is the sole source of
-	// traversal randomness (map iteration order is intentionally non-deterministic in Go).
-	slices.Sort(nodes)
+	cached := g.Nodes()
+	// Copy before shuffle: Nodes() returns a cached sorted slice that must not be mutated.
+	nodes := make([]NodeID, len(cached))
+	copy(nodes, cached)
 	state.rng.Shuffle(len(nodes), func(i, j int) {
 		nodes[i], nodes[j] = nodes[j], nodes[i]
 	})

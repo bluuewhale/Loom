@@ -1,5 +1,7 @@
 package graph
 
+import "slices"
+
 // NodeID is a type-safe identifier for graph nodes.
 type NodeID int
 
@@ -17,6 +19,7 @@ type Graph struct {
 	nodes       map[NodeID]float64 // nodeID -> node weight (default 1.0)
 	adjacency   map[NodeID][]Edge  // nodeID -> neighbor edges
 	totalWeight float64            // sum of distinct edge weights
+	sortedNodes []NodeID           // cache; nil when stale
 }
 
 // NewGraph creates a new empty graph. If directed is true, edges are one-way;
@@ -37,6 +40,7 @@ func (g *Graph) AddNode(id NodeID, weight float64) {
 		if _, ok := g.adjacency[id]; !ok {
 			g.adjacency[id] = nil
 		}
+		g.sortedNodes = nil
 	}
 }
 
@@ -68,6 +72,7 @@ func (g *Graph) AddEdge(from, to NodeID, weight float64) {
 
 	// totalWeight counts each distinct edge once
 	g.totalWeight += weight
+	g.sortedNodes = nil
 }
 
 // Neighbors returns the list of edges from node id. Returns nil if node has no edges.
@@ -75,12 +80,19 @@ func (g *Graph) Neighbors(id NodeID) []Edge {
 	return g.adjacency[id]
 }
 
-// Nodes returns all node IDs in the graph (order not guaranteed).
+// Nodes returns all node IDs in sorted order. The returned slice is cached
+// internally and MUST NOT be modified by callers. The cache is invalidated
+// automatically on AddNode/AddEdge.
 func (g *Graph) Nodes() []NodeID {
+	if g.sortedNodes != nil {
+		return g.sortedNodes
+	}
 	ids := make([]NodeID, 0, len(g.nodes))
 	for id := range g.nodes {
 		ids = append(ids, id)
 	}
+	slices.Sort(ids)
+	g.sortedNodes = ids
 	return ids
 }
 
@@ -242,6 +254,8 @@ func (g *Graph) WeightToComm(n NodeID, comm int, partition map[NodeID]int) float
 }
 
 // CommStrength returns the sum of Strength(n) for all nodes n in community comm.
+// O(n): iterates the full partition. Do not call inside inner loops — use a
+// precomputed commStr cache instead.
 func (g *Graph) CommStrength(comm int, partition map[NodeID]int) float64 {
 	var total float64
 	for n, c := range partition {

@@ -70,8 +70,7 @@ func (st *leidenState) reset(g *Graph, seed int64, initialPartition map[NodeID]i
 	st.rng = rand.New(src)
 
 	// Populate communities in ascending NodeID order for determinism.
-	nodes := g.Nodes()
-	slices.Sort(nodes)
+	nodes := g.Nodes() // cached, already sorted
 
 	if initialPartition == nil {
 		// Cold start: trivial singleton assignment (existing behavior).
