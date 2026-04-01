@@ -88,3 +88,16 @@ Plans:
 - [x] 01-02-PLAN.md — BFS cursor fix, buildSupergraph dedup, Subgraph seen-map pool
 - [x] 01-03-PLAN.md — CSR adjacency view for phase1 inner loop
 - [x] 01-04-PLAN.md — Gap closure: re-seed benchmark for PCG convergence + calibrate targets
+
+### Phase 2: Leiden PCG benchmark regression fix
+
+**Goal:** Eliminate per-community map allocations in refinePartition — the dominant Leiden-specific allocation source — to bring Leiden 10K allocs/op to Louvain parity.
+**Requirements**:
+- Leiden 10K allocs/op drops from 58,220 to ≤ 46,500 (Louvain parity + 10% margin; seed 110 PCG 4-pass)
+- All existing tests pass
+- No public API signature changes
+**Depends on:** Phase 1
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 02-01-PLAN.md — refinePartitionInPlace: CSR-indexed bool scratch + sorted pairs (eliminates all per-community allocs)

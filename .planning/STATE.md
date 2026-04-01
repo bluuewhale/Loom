@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 01-04-PLAN.md — PCG benchmark seed calibration + ROADMAP target update
-last_updated: "2026-04-01T06:40:01.602Z"
+stopped_at: Completed 02-01-PLAN.md — refinePartitionInPlace: Leiden 10K allocs 58220→45938 (Louvain parity)
+last_updated: "2026-04-01T18:00:00.000Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 1
@@ -74,12 +74,14 @@ Progress: [____________] 0% (0/4 phases complete)
 | Phase 01-optimize-graph-core P02 | 13 | 2 tasks | 3 files |
 | Phase 01-optimize-graph-core P03 | 30 | 2 tasks | 4 files |
 | Phase 01 P04 | 25 | 2 tasks | 2 files |
+| Phase 02-leiden-pcg P01 | 20 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
 - Phase 1 added: optimize graph core
+- Phase 2 added: Leiden PCG benchmark regression fix
 
 ### Decisions
 
@@ -129,6 +131,7 @@ Progress: [____________] 0% (0/4 phases complete)
 - [Phase 01-optimize-graph-core]: CSR alloc target (<=25K) unachievable via CSR alone — dominant source is buildSupergraph extra pass from PCG shuffle (established 01-01); CSR retained as zero-regression with bytes/op improvement 36MB->30MB
 - [Phase 01-optimize-graph-core]: Seed 110 chosen for 10K benchmarks: PCG converges in 4 passes with ~1984 communities (closest to seed=1 old-rand topology among seeds 1-500)
 - [Phase 01-optimize-graph-core]: ROADMAP allocs/op target revised to <=50500 (measured ~45880 avg + 10% margin); ns/op target to >=10% (measured 11.7% = 63.5ms->56.1ms)
+- [Phase 02-leiden-pcg]: refinePartitionInPlace: CSR-indexed []bool scratch + sorted commNodePairs eliminates all per-community inComm/visited map allocs; Leiden 10K 58220→45938 allocs/op (−21%), now at Louvain parity; LeidenWarmStart 6955→5382 allocs/op (−23%)
 
 ### v1.2 Critical Pitfalls (from research)
 

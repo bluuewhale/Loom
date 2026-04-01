@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// commNodePair pairs a community ID with a NodeID for the sorted-partition BFS approach.
+type commNodePair struct {
+	comm int
+	node NodeID
+}
+
 // Detect runs the Leiden community detection algorithm on graph g.
 // Leiden improves on Louvain by guaranteeing internally-connected communities:
 // after each local-move phase, a BFS refinement splits any disconnected
@@ -153,7 +159,7 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 		totalMoves += moves
 
 		// Phase 2 (Leiden-specific): BFS refinement — split disconnected communities.
-		state.refinedPartition = refinePartition(currentGraph, state.partition)
+		refinePartitionInPlace(currentGraph, &csr, state.partition, state)
 
 		// Best-Q tracking using refinedPartition (reflects actual aggregation structure).
 		candidatePartition := reconstructPartition(origNodes, nodeMapping, state.refinedPartition)
@@ -219,69 +225,103 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 	}, nil
 }
 
-// refinePartition returns a new partition where each connected component
-// within every community becomes its own community.
-// Self-loops are skipped during BFS (they don't contribute to connectivity).
-// Communities are processed in sorted order for deterministic output.
-func refinePartition(g *Graph, partition map[NodeID]int) map[NodeID]int {
-	// Group nodes by community.
-	commNodes := make(map[int][]NodeID)
-	for n, c := range partition {
-		commNodes[c] = append(commNodes[c], n)
+// refinePartitionInPlace splits disconnected communities via BFS, writing results
+// directly into st.refinedPartition. It avoids all per-community heap allocations
+// by using CSR-indexed boolean scratch arrays and a single sorted-pairs pass.
+//
+// Replaces the old refinePartition which allocated commNodes, inComm, and visited
+// maps per community — the dominant allocation source in the Leiden 10K benchmark.
+// Self-loops are skipped during BFS. Communities are processed in sorted comm-ID
+// order; nodes within each community are processed in sorted NodeID order for
+// deterministic BFS starts.
+func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, st *leidenState) {
+	n := len(csr.nodeIDs)
+
+	// Grow CSR-indexed scratch slices lazily (once per pool lifetime after first large graph).
+	if len(st.inCommBits) < n {
+		st.inCommBits = make([]bool, n)
+		st.visitedBits = make([]bool, n)
 	}
 
-	// Collect and sort community IDs for deterministic output.
-	commIDs := make([]int, 0, len(commNodes))
-	for c := range commNodes {
-		commIDs = append(commIDs, c)
+	// Build (comm, node) pairs — one per node, reuse backing array.
+	if cap(st.commBuildPairs) < n {
+		st.commBuildPairs = make([]commNodePair, n)
+	} else {
+		st.commBuildPairs = st.commBuildPairs[:n]
 	}
-	slices.Sort(commIDs)
+	i := 0
+	for node, comm := range partition {
+		st.commBuildPairs[i] = commNodePair{comm: comm, node: node}
+		i++
+	}
 
-	refined := make(map[NodeID]int, len(partition))
+	// Sort by (community ID, node ID) — communities in sorted order, nodes within
+	// each community in deterministic order for reproducible BFS start selection.
+	slices.SortFunc(st.commBuildPairs, func(a, b commNodePair) int {
+		if a.comm != b.comm {
+			return a.comm - b.comm
+		}
+		return int(a.node) - int(b.node)
+	})
+
+	// Clear refined partition for this pass (reuse existing map allocation).
+	clear(st.refinedPartition)
+
 	nextID := 0
+	var queue []NodeID // backing reused across communities
 
-	// queue is declared outside the outer loop so its backing array is reused
-	// across communities, avoiding a new slice allocation per BFS.
-	var queue []NodeID
+	// Process each community group in sorted order.
+	for start := 0; start < n; {
+		comm := st.commBuildPairs[start].comm
+		end := start
+		for end < n && st.commBuildPairs[end].comm == comm {
+			end++
+		}
+		// st.commBuildPairs[start:end] holds all nodes in this community.
 
-	for _, comm := range commIDs {
-		nodes := commNodes[comm]
-		// Build node-set for O(1) intra-community neighbor filtering.
-		inComm := make(map[NodeID]struct{}, len(nodes))
-		for _, n := range nodes {
-			inComm[n] = struct{}{}
+		// Mark inComm bits for every node in this community.
+		for _, p := range st.commBuildPairs[start:end] {
+			st.inCommBits[csr.idToIdx[p.node]] = true
 		}
 
-		visited := make(map[NodeID]bool, len(nodes))
-		for _, start := range nodes {
-			if visited[start] {
+		// BFS from each unvisited node — each BFS discovers one connected component.
+		for _, p := range st.commBuildPairs[start:end] {
+			startIdx := csr.idToIdx[p.node]
+			if st.visitedBits[startIdx] {
 				continue
 			}
-			// BFS: only traverse edges where the neighbor is in the same community.
-			// Cursor-based dequeue avoids backing-array abandonment from queue[1:] slicing.
 			queue = queue[:0]
-			queue = append(queue, start)
-			visited[start] = true
+			queue = append(queue, p.node)
+			st.visitedBits[startIdx] = true
 			head := 0
 			for head < len(queue) {
 				cur := queue[head]
 				head++
-				refined[cur] = nextID
+				st.refinedPartition[cur] = nextID
 				for _, e := range g.Neighbors(cur) {
 					if e.To == cur {
 						continue // skip self-loops
 					}
-					if _, ok := inComm[e.To]; !ok {
+					toIdx := csr.idToIdx[e.To]
+					if !st.inCommBits[toIdx] {
 						continue // skip cross-community edges
 					}
-					if !visited[e.To] {
-						visited[e.To] = true
+					if !st.visitedBits[toIdx] {
+						st.visitedBits[toIdx] = true
 						queue = append(queue, e.To)
 					}
 				}
 			}
 			nextID++
 		}
+
+		// Clear inComm and visited bits — only touches nodes in this community.
+		for _, p := range st.commBuildPairs[start:end] {
+			idx := csr.idToIdx[p.node]
+			st.inCommBits[idx] = false
+			st.visitedBits[idx] = false
+		}
+
+		start = end
 	}
-	return refined
 }

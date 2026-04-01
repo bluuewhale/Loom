@@ -17,6 +17,11 @@ type leidenState struct {
 	candidateBuf     []int              // reusable buffer for candidate communities
 	rng              *rand.Rand         // per-run RNG for node shuffle
 	pcg              *rand.PCG          // stored source for zero-alloc reseed
+
+	// refinePartitionInPlace scratch — eliminates all per-community allocations:
+	commBuildPairs []commNodePair // (comm, node) pairs sorted by comm; grown lazily
+	inCommBits     []bool         // CSR-indexed; true if node is in current community
+	visitedBits    []bool         // CSR-indexed; true if node has been BFS-visited
 }
 
 // leidenStatePool reuses leidenState allocations across Detect calls to reduce GC pressure.
@@ -32,6 +37,8 @@ var leidenStatePool = sync.Pool{
 			candidateBuf:     make([]int, 0, 64),
 			rng:              rand.New(pcg),
 			pcg:              pcg,
+			commBuildPairs:   make([]commNodePair, 0, 128),
+			// inCommBits and visitedBits are grown lazily in refinePartitionInPlace.
 		}
 	},
 }
