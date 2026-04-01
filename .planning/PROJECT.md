@@ -133,4 +133,4 @@ See `.planning/milestones/v1.2-ROADMAP.md` for full phase details.
 이 문서는 마일스톤 전환 시 업데이트됩니다.
 
 ---
-*Last updated: 2026-03-31 — v1.3 shipped: Online Ego-Splitting (Phases 10–13) archived. 29x Update() speedup, 233ms/op parallel ego-net construction.*
+*Last updated: 2026-04-01 — Phase 3 complete: Leiden BFS refinement (counting sort + CSR adjacency). Leiden 10K 60.4ms→59.1ms (−2.2%), Louvain gap 7.5%→5.2%. All 3 milestone phases verified.*
