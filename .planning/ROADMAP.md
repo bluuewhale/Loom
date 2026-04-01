@@ -81,7 +81,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - All existing tests pass
 - No public API signature changes
 **Depends on:** Phase 0 (all v1.3 work complete)
-**Plans:** 4 plans (3 complete + 1 gap closure)
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 01-01-PLAN.md — Nodes() cache, math/rand/v2 migration, dead code removal
