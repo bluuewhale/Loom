@@ -1,6 +1,9 @@
 package graph
 
-import "slices"
+import (
+	"slices"
+	"sync"
+)
 
 // NodeID is a type-safe identifier for graph nodes.
 type NodeID int
@@ -30,6 +33,16 @@ func NewGraph(directed bool) *Graph {
 		nodes:     make(map[NodeID]float64),
 		adjacency: make(map[NodeID][]Edge),
 	}
+}
+
+// subgraphSeenPool reuses the edge-dedup map for Subgraph calls to reduce
+// allocation pressure when Subgraph is called repeatedly (e.g., 10K calls
+// during EgoSplitting buildPersonaGraph).
+var subgraphSeenPool = sync.Pool{
+	New: func() any {
+		m := make(map[[2]NodeID]struct{}, 32)
+		return &m
+	},
 }
 
 // AddNode adds a node with the given weight. If the node already exists, this is a no-op.
@@ -213,7 +226,15 @@ func (g *Graph) Subgraph(nodeIDs []NodeID) *Graph {
 
 	// Add edges where both endpoints are in nodeSet.
 	// For undirected graphs, we process each edge only once to avoid double-counting totalWeight.
-	seen := make(map[[2]NodeID]struct{})
+	seenPtr := subgraphSeenPool.Get().(*map[[2]NodeID]struct{})
+	seen := *seenPtr
+	// Clear reused map from prior call.
+	for k := range seen {
+		delete(seen, k)
+	}
+	defer func() {
+		subgraphSeenPool.Put(seenPtr)
+	}()
 	for _, from := range nodeIDs {
 		for _, e := range g.adjacency[from] {
 			if _, inSet := nodeSet[e.To]; !inSet {
