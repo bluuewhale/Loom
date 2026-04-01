@@ -47,7 +47,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		resolution = 1.0
 	}
 	maxPasses := d.opts.MaxPasses // 0 = unlimited
-	seed := d.opts.Seed           // 0 = random (handled inside newLouvainState)
+	seed := d.opts.Seed           // 0 = random (handled inside acquireLouvainState)
 
 	// nodeMapping maps each original NodeID to its corresponding supernode NodeID
 	// in the current supergraph. Initially the identity mapping.
@@ -255,18 +255,6 @@ func phase1(g *Graph, state *louvainState, resolution, m float64) int {
 		}
 	}
 	return moves
-}
-
-// deltaQ computes the modularity gain of placing node n into community comm.
-// Formula: kiIn/m - resolution * (sigTot/(2m)) * (ki/(2m))
-// where m = TotalWeight(), sigTot = commStr[comm] (excluding n's contribution), kiIn = edge weight from n to comm.
-func deltaQ(g *Graph, n NodeID, comm int, partition map[NodeID]int,
-	commStr map[int]float64, resolution, m float64) float64 {
-	kiIn := g.WeightToComm(n, comm, partition)
-	sigTot := commStr[comm]
-	ki := g.Strength(n)
-	twoM := 2.0 * m
-	return kiIn/m - resolution*(sigTot/twoM)*(ki/twoM)
 }
 
 // buildSupergraph compresses the current graph by merging each community into a supernode.

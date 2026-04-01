@@ -1,31 +1,34 @@
 package graph
 
 import (
-	"math/rand"
-	"slices"
+	"math/rand/v2"
 	"sync"
 	"time"
 )
 
 // louvainState holds mutable state for a single Louvain detection run.
 type louvainState struct {
-	partition     map[NodeID]int  // node -> community ID
-	commStr       map[int]float64 // community ID -> sum of node strengths (cached)
+	partition     map[NodeID]int     // node -> community ID
+	commStr       map[int]float64    // community ID -> sum of node strengths (cached)
 	neighborBuf   map[NodeID]float64 // reusable buffer: neighbor community weight accumulation
 	neighborDirty []NodeID           // dirty-list: keys written to neighborBuf this iteration
 	candidateBuf  []int              // reusable buffer for candidate community IDs
 	rng           *rand.Rand         // per-run RNG for node shuffle
+	pcg           *rand.PCG          // stored source for zero-alloc reseed
 }
 
 // louvainStatePool reuses louvainState allocations across Detect calls to reduce GC pressure.
 var louvainStatePool = sync.Pool{
 	New: func() any {
+		pcg := rand.NewPCG(1, 0)
 		return &louvainState{
 			partition:     make(map[NodeID]int),
 			commStr:       make(map[int]float64),
 			neighborBuf:   make(map[NodeID]float64),
 			neighborDirty: make([]NodeID, 0, 64),
 			candidateBuf:  make([]int, 0, 64),
+			rng:           rand.New(pcg),
+			pcg:           pcg,
 		}
 	},
 }
@@ -54,15 +57,20 @@ func (st *louvainState) reset(g *Graph, seed int64, initialPartition map[NodeID]
 	st.neighborDirty = st.neighborDirty[:0]
 	st.candidateBuf = st.candidateBuf[:0]
 
-	// Re-seed RNG. Always create a fresh rand.New to ensure identical number
-	// generation to newLouvainState; st.rng.Seed skips internal state setup.
-	var src rand.Source
+	// Re-seed RNG via stored PCG source — zero allocation.
+	var actualSeed int64
 	if seed != 0 {
-		src = rand.NewSource(seed)
+		actualSeed = seed
 	} else {
-		src = rand.NewSource(time.Now().UnixNano())
+		actualSeed = time.Now().UnixNano()
 	}
-	st.rng = rand.New(src)
+	if st.pcg == nil {
+		// First use (not from pool) — allocate once.
+		st.pcg = rand.NewPCG(uint64(actualSeed), 0)
+		st.rng = rand.New(st.pcg)
+	} else {
+		st.pcg.Seed(uint64(actualSeed), 0)
+	}
 
 	// Populate communities in ascending NodeID order for determinism.
 	nodes := g.Nodes() // cached, already sorted
@@ -114,33 +122,3 @@ func (st *louvainState) reset(g *Graph, seed int64, initialPartition map[NodeID]
 	}
 }
 
-// newLouvainState is kept for backward-compatibility with code that creates
-// a louvainState without using the pool (e.g., the Leiden inline wrapper).
-func newLouvainState(g *Graph, seed int64) *louvainState {
-	var src rand.Source
-	if seed != 0 {
-		src = rand.NewSource(seed)
-	} else {
-		src = rand.NewSource(time.Now().UnixNano())
-	}
-
-	nodes := g.Nodes()
-	slices.Sort(nodes)
-
-	partition := make(map[NodeID]int, len(nodes))
-	commStr := make(map[int]float64, len(nodes))
-
-	for i, n := range nodes {
-		partition[n] = i
-		commStr[i] = g.Strength(n)
-	}
-
-	return &louvainState{
-		partition:     partition,
-		commStr:       commStr,
-		neighborBuf:   make(map[NodeID]float64),
-		neighborDirty: make([]NodeID, 0, 64),
-		candidateBuf:  make([]int, 0, 64),
-		rng:           rand.New(src),
-	}
-}

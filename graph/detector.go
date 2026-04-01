@@ -25,12 +25,12 @@ type CommunityResult struct {
 //   - Resolution 0.0 -> 1.0
 //   - Seed 0 -> random seed (non-deterministic)
 //   - MaxPasses 0 -> unlimited (converge via tolerance)
-//   - Tolerance 0.0 -> 1e-7
+//   - Tolerance: not yet implemented (reserved for future use)
 type LouvainOptions struct {
 	Resolution       float64
 	Seed             int64
 	MaxPasses        int
-	Tolerance        float64
+	Tolerance        float64        // not yet implemented; reserved for future tolerance-based early exit
 	InitialPartition map[NodeID]int // nil = cold start (default)
 }
 
@@ -39,12 +39,12 @@ type LouvainOptions struct {
 //   - Resolution 0.0 -> 1.0
 //   - Seed 0 -> random seed (non-deterministic)
 //   - MaxIterations 0 -> unlimited
-//   - Tolerance 0.0 -> 1e-7
+//   - Tolerance: not yet implemented (reserved for future use)
 type LeidenOptions struct {
 	Resolution       float64
 	Seed             int64
 	MaxIterations    int
-	Tolerance        float64
+	Tolerance        float64        // not yet implemented; reserved for future tolerance-based early exit
 	InitialPartition map[NodeID]int // nil = cold start (default)
 	// NumRuns specifies how many independent runs to execute when Seed=0
 	// (non-deterministic mode). The run with the highest modularity Q is returned.
