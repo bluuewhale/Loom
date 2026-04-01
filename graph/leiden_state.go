@@ -1,8 +1,7 @@
 package graph
 
 import (
-	"math/rand"
-	"slices"
+	"math/rand/v2"
 	"sync"
 	"time"
 )
@@ -17,11 +16,26 @@ type leidenState struct {
 	neighborDirty    []NodeID           // dirty-list: keys written to neighborBuf this iteration
 	candidateBuf     []int              // reusable buffer for candidate communities
 	rng              *rand.Rand         // per-run RNG for node shuffle
+	pcg              *rand.PCG          // stored source for zero-alloc reseed
+
+	// refinePartitionInPlace scratch — eliminates all per-community allocations:
+	commBuildPairs []commNodePair // (comm, node) pairs; grown lazily
+	inCommBits     []bool         // CSR-indexed; true if node is in current community
+	visitedBits    []bool         // CSR-indexed; true if node has been BFS-visited
+
+	// counting-sort scratch — replaces slices.SortFunc for O(N) community grouping:
+	commCountScratch []int // indexed by partition ID (always in [0,N)); reset via commSeenComms
+	commSeenComms    []int // dirty list of community IDs touched; used to zero commCountScratch
+	commSortedPairs  []commNodePair // scatter output buffer; same size as commBuildPairs
+
+	// BFS queue of CSR dense indices (int32) — avoids g.Neighbors map lookup:
+	bfsQueue []int32
 }
 
 // leidenStatePool reuses leidenState allocations across Detect calls to reduce GC pressure.
 var leidenStatePool = sync.Pool{
 	New: func() any {
+		pcg := rand.NewPCG(1, 0)
 		return &leidenState{
 			partition:        make(map[NodeID]int),
 			refinedPartition: make(map[NodeID]int),
@@ -29,6 +43,13 @@ var leidenStatePool = sync.Pool{
 			neighborBuf:      make(map[NodeID]float64),
 			neighborDirty:    make([]NodeID, 0, 64),
 			candidateBuf:     make([]int, 0, 64),
+			rng:              rand.New(pcg),
+			pcg:              pcg,
+			commBuildPairs:  make([]commNodePair, 0, 128),
+			commSeenComms:   make([]int, 0, 64),
+			commSortedPairs: make([]commNodePair, 0, 128),
+			bfsQueue:        make([]int32, 0, 64),
+			// inCommBits, visitedBits, commCountScratch grown lazily in refinePartitionInPlace.
 		}
 	},
 }
@@ -59,19 +80,23 @@ func (st *leidenState) reset(g *Graph, seed int64, initialPartition map[NodeID]i
 	st.neighborDirty = st.neighborDirty[:0]
 	st.candidateBuf = st.candidateBuf[:0]
 
-	// Re-seed RNG. Always create a fresh rand.New to ensure identical number
-	// generation to newLeidenState; st.rng.Seed skips internal state setup.
-	var src rand.Source
+	// Re-seed RNG via stored PCG source — zero allocation.
+	var actualSeed int64
 	if seed != 0 {
-		src = rand.NewSource(seed)
+		actualSeed = seed
 	} else {
-		src = rand.NewSource(time.Now().UnixNano())
+		actualSeed = time.Now().UnixNano()
 	}
-	st.rng = rand.New(src)
+	if st.pcg == nil {
+		// First use (not from pool) — allocate once.
+		st.pcg = rand.NewPCG(uint64(actualSeed), 0)
+		st.rng = rand.New(st.pcg)
+	} else {
+		st.pcg.Seed(uint64(actualSeed), 0)
+	}
 
 	// Populate communities in ascending NodeID order for determinism.
-	nodes := g.Nodes()
-	slices.Sort(nodes)
+	nodes := g.Nodes() // cached, already sorted
 
 	if initialPartition == nil {
 		// Cold start: trivial singleton assignment (existing behavior).
@@ -120,36 +145,3 @@ func (st *leidenState) reset(g *Graph, seed int64, initialPartition map[NodeID]i
 	}
 }
 
-// newLeidenState initializes state with each node in its own community.
-// Community IDs start at 0 and are assigned in ascending NodeID order for
-// deterministic initialization regardless of map iteration order.
-// Seed 0 uses time.Now().UnixNano() (non-deterministic).
-func newLeidenState(g *Graph, seed int64) *leidenState {
-	var src rand.Source
-	if seed != 0 {
-		src = rand.NewSource(seed)
-	} else {
-		src = rand.NewSource(time.Now().UnixNano())
-	}
-
-	nodes := g.Nodes()
-	slices.Sort(nodes)
-
-	partition := make(map[NodeID]int, len(nodes))
-	commStr := make(map[int]float64, len(nodes))
-
-	for i, n := range nodes {
-		partition[n] = i
-		commStr[i] = g.Strength(n)
-	}
-
-	return &leidenState{
-		partition:        partition,
-		refinedPartition: nil, // populated after first refinement
-		commStr:          commStr,
-		neighborBuf:      make(map[NodeID]float64),
-		neighborDirty:    make([]NodeID, 0, 64),
-		candidateBuf:     make([]int, 0, 64),
-		rng:              rand.New(src),
-	}
-}
