@@ -58,6 +58,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	}
 
 	currentGraph := g
+	csr := buildCSR(currentGraph)
 	totalPasses := 0
 	totalMoves := 0
 
@@ -85,7 +86,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		} else {
 			state.reset(currentGraph, seed, nil)
 		}
-		moves := phase1(currentGraph, state, resolution, currentGraph.TotalWeight())
+		moves := phase1(currentGraph, &csr, state, resolution, currentGraph.TotalWeight())
 		totalPasses++
 		totalMoves += moves
 
@@ -135,6 +136,7 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		nodeMapping = newMapping
 
 		currentGraph = newGraph
+		csr = buildCSR(currentGraph)
 		// If the supergraph has collapsed to a single node, we've fully converged.
 		if currentGraph.NodeCount() <= 1 {
 			break
@@ -168,19 +170,31 @@ func reconstructPartition(origNodes []NodeID, nodeMapping map[NodeID]NodeID, sup
 // phase1 performs one full pass of local moves (Phase 1 of Louvain).
 // Iterates over all nodes in shuffled order, moving each to the neighboring
 // community with the highest modularity gain. Returns the number of moves made.
-func phase1(g *Graph, state *louvainState, resolution, m float64) int {
-	cached := g.Nodes()
-	// Copy before shuffle: Nodes() returns a cached sorted slice that must not be mutated.
-	nodes := make([]NodeID, len(cached))
-	copy(nodes, cached)
-	state.rng.Shuffle(len(nodes), func(i, j int) {
-		nodes[i], nodes[j] = nodes[j], nodes[i]
+// csr provides O(1) indexed neighbor lookups; phase1 shuffles dense indices
+// to avoid the idToIdx map lookup in the hot loop.
+func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64) int {
+	n := len(csr.nodeIDs)
+	// Shuffle dense indices [0..n-1] so we can use idx directly for csr lookups,
+	// deriving NodeID via csr.nodeIDs[idx]. Avoids idToIdx map lookup per node.
+	indices := state.idxBuf[:0]
+	if cap(indices) >= n {
+		indices = indices[:n]
+	} else {
+		indices = make([]int32, n)
+		state.idxBuf = indices
+	}
+	for i := range indices {
+		indices[i] = int32(i)
+	}
+	state.rng.Shuffle(n, func(i, j int) {
+		indices[i], indices[j] = indices[j], indices[i]
 	})
 
 	moves := 0
-	for _, n := range nodes {
+	for _, idx := range indices {
+		n := csr.nodeIDs[idx]
 		currentComm := state.partition[n]
-		ki := g.Strength(n)
+		ki := csr.strength(idx)
 
 		// Remove n from its current community (temporarily).
 		state.commStr[currentComm] -= ki
@@ -201,7 +215,7 @@ func phase1(g *Graph, state *louvainState, resolution, m float64) int {
 			state.neighborDirty = append(state.neighborDirty, NodeID(currentComm))
 			state.candidateBuf = append(state.candidateBuf, currentComm)
 		}
-		for _, e := range g.Neighbors(n) {
+		for _, e := range csr.neighbors(idx) {
 			nc := state.partition[e.To]
 			key := NodeID(nc)
 			if _, seen := state.neighborBuf[key]; !seen {

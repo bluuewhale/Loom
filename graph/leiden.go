@@ -110,6 +110,7 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 	}
 
 	currentGraph := g
+	csr := buildCSR(currentGraph)
 	totalPasses := 0
 	totalMoves := 0
 
@@ -143,7 +144,7 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 			candidateBuf:  state.candidateBuf,
 			rng:           state.rng,
 		}
-		moves := phase1(currentGraph, ls, resolution, currentGraph.TotalWeight())
+		moves := phase1(currentGraph, &csr, ls, resolution, currentGraph.TotalWeight())
 		state.partition = ls.partition
 		state.commStr = ls.commStr
 		state.neighborDirty = ls.neighborDirty
@@ -198,6 +199,7 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 		nodeMapping = newMapping
 
 		currentGraph = newGraph
+		csr = buildCSR(currentGraph)
 		// If the supergraph has collapsed to a single node, we've fully converged.
 		if currentGraph.NodeCount() <= 1 {
 			break

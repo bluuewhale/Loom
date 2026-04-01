@@ -13,6 +13,7 @@ type louvainState struct {
 	neighborBuf   map[NodeID]float64 // reusable buffer: neighbor community weight accumulation
 	neighborDirty []NodeID           // dirty-list: keys written to neighborBuf this iteration
 	candidateBuf  []int              // reusable buffer for candidate community IDs
+	idxBuf        []int32            // reusable buffer for dense-index shuffle in phase1
 	rng           *rand.Rand         // per-run RNG for node shuffle
 	pcg           *rand.PCG          // stored source for zero-alloc reseed
 }
@@ -27,6 +28,7 @@ var louvainStatePool = sync.Pool{
 			neighborBuf:   make(map[NodeID]float64),
 			neighborDirty: make([]NodeID, 0, 64),
 			candidateBuf:  make([]int, 0, 64),
+			idxBuf:        make([]int32, 0, 128),
 			rng:           rand.New(pcg),
 			pcg:           pcg,
 		}
@@ -56,6 +58,7 @@ func (st *louvainState) reset(g *Graph, seed int64, initialPartition map[NodeID]
 	clear(st.neighborBuf)
 	st.neighborDirty = st.neighborDirty[:0]
 	st.candidateBuf = st.candidateBuf[:0]
+	st.idxBuf = st.idxBuf[:0]
 
 	// Re-seed RNG via stored PCG source — zero allocation.
 	var actualSeed int64
