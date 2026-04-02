@@ -26,11 +26,91 @@ type OverlappingCommunityResult struct {
 
 	// Unexported carry-forward fields populated by Detect() for use by Update().
 	// These hold the intermediate state needed for incremental recomputation.
-	personaOf        map[NodeID]map[int]NodeID // original node -> community -> PersonaID
+	personaOf        map[NodeID][]commPersona  // original node -> [(community, PersonaID)] pairs
 	inverseMap       map[NodeID]NodeID         // PersonaID -> original NodeID
-	partitions       map[NodeID]map[NodeID]int // ego-net partition per original node
+	partitions       map[NodeID]egoPartition   // ego-net partition per original node
 	personaPartition map[NodeID]int            // persona-level global partition
 	personaGraph     *Graph                    // last-built persona graph (for Clone fast-path)
+}
+
+// nodeComm pairs an ego-net node with its community ID. Used in the flat arena
+// representation of connected ego-net partitions: a sorted []nodeComm replaces the
+// map[NodeID]int, eliminating 2 allocs/call from reconstructPartitionFromSlice.
+type nodeComm struct {
+	node NodeID
+	comm int
+}
+
+// egoPartition represents the community assignments for one ego-net.
+// Exactly one of m, flat, or sorted is non-nil (discriminated union):
+//   - m non-nil: legacy connected ego-net partition (map path; kept for Update compat).
+//   - flat non-nil: connected ego-net partition as sorted []nodeComm arena subslice.
+//     Community lookup uses binary search on nodeComm.node.
+//   - sorted non-nil: disconnected ego-net (every neighbor its own singleton).
+//     Community of node n = its position in the sorted NodeID slice.
+//   - all nil: isolated node (no ego-net).
+type egoPartition struct {
+	m      map[NodeID]int // non-nil for legacy connected ego-nets (Update path)
+	flat   []nodeComm     // non-nil for arena-backed connected ego-nets (Detect path)
+	sorted []NodeID       // non-nil for disconnected ego-nets (community = sort position)
+}
+
+// lookupComm returns the community ID of node n in the ego-partition, and whether n
+// was found. Map lookup for legacy m path; binary search for flat and sorted paths.
+func (ep egoPartition) lookupComm(n NodeID) (int, bool) {
+	if ep.m != nil {
+		c, ok := ep.m[n]
+		return c, ok
+	}
+	if ep.flat != nil {
+		// Binary search sorted []nodeComm by node field.
+		lo, hi := 0, len(ep.flat)
+		for lo < hi {
+			mid := (lo + hi) / 2
+			if ep.flat[mid].node < n {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		if lo < len(ep.flat) && ep.flat[lo].node == n {
+			return ep.flat[lo].comm, true
+		}
+		return 0, false
+	}
+	// Binary search in sorted NodeID slice (disconnected ego-net).
+	lo, hi := 0, len(ep.sorted)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if ep.sorted[mid] < n {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	if lo < len(ep.sorted) && ep.sorted[lo] == n {
+		return lo, true
+	}
+	return 0, false
+}
+
+// commPersona pairs a local community ID with its assigned persona NodeID.
+// Used in personaOf slices instead of map[int]NodeID to eliminate per-node map allocs;
+// lists are short (1–2 entries) so linear scan in lookupPersona is O(1) in practice.
+type commPersona struct {
+	comm    int
+	persona NodeID
+}
+
+// lookupPersona finds the persona NodeID for commID in a commPersona slice.
+// Returns (0, false) when not found.
+func lookupPersona(list []commPersona, commID int) (NodeID, bool) {
+	for i := range list {
+		if list[i].comm == commID {
+			return list[i].persona, true
+		}
+	}
+	return 0, false
 }
 
 // EgoSplittingOptions configures the Ego Splitting algorithm.
@@ -203,20 +283,22 @@ func (d *egoSplittingDetector) DetectWithPrior(
 	// For each original node v, iterate its personas (keyed by local community
 	// index). Assign persona i the prior community priorNodeCommunities[v][i%m].
 	warmPartition := make(map[NodeID]int, len(inverseMap))
-	for v, commPersonas := range personaOf {
+	for v, cpList := range personaOf {
 		priorComms, hasPrior := priorNodeCommunities[v]
 		if !hasPrior || len(priorComms) == 0 {
 			continue // handled below as singletons
 		}
 		// Sort local-community keys for deterministic positional mapping;
 		// LocalDetector IDs are opaque integers that may be non-contiguous.
-		localKeys := make([]int, 0, len(commPersonas))
-		for lc := range commPersonas {
-			localKeys = append(localKeys, lc)
+		localKeys := make([]int, 0, len(cpList))
+		for _, cp := range cpList {
+			localKeys = append(localKeys, cp.comm)
 		}
 		sort.Ints(localKeys)
 		for i, lc := range localKeys {
-			warmPartition[commPersonas[lc]] = priorComms[i%len(priorComms)]
+			if pID, ok := lookupPersona(cpList, lc); ok {
+				warmPartition[pID] = priorComms[i%len(priorComms)]
+			}
 		}
 	}
 	// Assign fresh singleton IDs to personas with no prior coverage.
@@ -226,11 +308,11 @@ func (d *egoSplittingDetector) DetectWithPrior(
 			maxCommID = c
 		}
 	}
-	for _, commPersonas := range personaOf {
-		for _, personaID := range commPersonas {
-			if _, assigned := warmPartition[personaID]; !assigned {
+	for _, cpList := range personaOf {
+		for _, cp := range cpList {
+			if _, assigned := warmPartition[cp.persona]; !assigned {
 				maxCommID++
-				warmPartition[personaID] = maxCommID
+				warmPartition[cp.persona] = maxCommID
 			}
 		}
 	}
@@ -396,10 +478,17 @@ type egoNetJob struct {
 }
 
 // egoNetResult holds the output of one ego-net detection job.
+// Exactly one of flat, partition, or disconnected is set (never two at once):
+//   - flat non-nil: connected louvain ego-net; sorted []nodeComm in goroutine-local backing.
+//   - partition non-nil: connected ego-net from a non-Louvain detector (legacy map path).
+//   - disconnected non-nil: ego-net had TotalWeight==0 (all singletons); slice is sorted NodeIDs.
+//   - all nil: isolated node (ego-net was empty).
 type egoNetResult struct {
-	v         NodeID
-	partition map[NodeID]int
-	err       error
+	v            NodeID
+	flat         []nodeComm     // sorted (by node) flat partition; goroutine-local backing
+	partition    map[NodeID]int // legacy map partition for non-Louvain detectors
+	disconnected []NodeID       // sorted ego-net NodeIDs for the disconnected case
+	err          error
 }
 
 // runParallelEgoNets dispatches ego-net detection across workerCount goroutines.
@@ -424,6 +513,16 @@ func runParallelEgoNets(jobs []egoNetJob, det CommunityDetector, workerCount int
 					return
 				}
 				job := jobs[i]
+				// Fast-path: disconnected ego-net — skip Louvain, copy sorted node list.
+				// This avoids the make(map[NodeID]int) + bucket alloc in Louvain.Detect.
+				if job.egoNet.TotalWeight() == 0 {
+					nodes := job.egoNet.Nodes()
+					sortedCopy := make([]NodeID, len(nodes))
+					copy(sortedCopy, nodes)
+					releaseGraph(job.egoNet)
+					out[i] = egoNetResult{v: job.v, disconnected: sortedCopy}
+					continue
+				}
 				res, err := localDet.Detect(job.egoNet)
 				releaseGraph(job.egoNet) // safe: Detect is done; no other live reference
 				out[i] = egoNetResult{v: job.v, partition: res.Partition, err: err}
@@ -453,10 +552,19 @@ func runParallelBuildDetect(nodes []NodeID, g *Graph, det CommunityDetector, wor
 		wg.Add(1)
 		go func(localDet CommunityDetector) {
 			defer wg.Done()
-			var scratch []NodeID
-			var edgeBacking []Edge
-			var sortedIDsBuf []NodeID
-			var degreesBuf []int
+			// Pre-size goroutine-local scratch buffers to typical BA ego-net sizes.
+			// Starting nil causes repeated growth allocs as each new max-degree is seen;
+			// a modest pre-cap eliminates those for the common case (degree ≤ 64).
+			scratch := make([]NodeID, 0, 64)
+			edgeBacking := make([]Edge, 0, 128)
+			sortedIDsBuf := make([]NodeID, 0, 64)
+			degreesBuf := make([]int, 0, 64)
+			// scratchMap and flatBuf are goroutine-local and reused across all nodes
+			// this goroutine processes. scratchMap is passed to detectInto (cleared each
+			// call); flatBuf grows monotonically and its subslices back out[i].flat.
+			// Both live for the goroutine's lifetime — O(1) allocs amortized per node.
+			var scratchMap map[NodeID]int // lazily initialised on first louvain hit
+			var flatBuf []nodeComm
 			for {
 				i := int(idx.Add(1)) - 1
 				if i >= len(nodes) {
@@ -473,9 +581,45 @@ func runParallelBuildDetect(nodes []NodeID, g *Graph, det CommunityDetector, wor
 					out[i] = egoNetResult{v: v} // partition==nil signals isolated
 					continue
 				}
-				res, err := localDet.Detect(egoNet)
-				releaseGraph(egoNet)
-				out[i] = egoNetResult{v: v, partition: res.Partition, err: err}
+				// Fast-path: disconnected ego-net — skip Louvain.
+				// Signal via non-nil empty sentinel; the sorted neighbor list is
+				// rebuilt from g in buildPersonaGraph using a single arena backing,
+				// eliminating the per-node make([]NodeID, N) alloc here.
+				if egoNet.TotalWeight() == 0 {
+					releaseGraph(egoNet)
+					out[i] = egoNetResult{v: v, disconnected: []NodeID{}}
+					continue
+				}
+				if ld, ok := localDet.(*louvainDetector); ok {
+					// detectInto writes into a goroutine-local scratchMap (no pool, no GC
+					// clearing); immediately convert to sorted flat subslice of flatBuf.
+					// This eliminates reconstructPartitionFromSlice's map alloc (~2/call)
+					// at the cost of O(log N) flatBuf growth allocs per goroutine lifetime.
+					if scratchMap == nil {
+						scratchMap = make(map[NodeID]int, 32)
+					}
+					_, err := ld.detectInto(egoNet, scratchMap)
+					releaseGraph(egoNet)
+					start := len(flatBuf)
+					for node, comm := range scratchMap {
+						flatBuf = append(flatBuf, nodeComm{node, comm})
+					}
+					flatSlice := flatBuf[start:len(flatBuf)]
+					slices.SortFunc(flatSlice, func(a, b nodeComm) int {
+						if a.node < b.node {
+							return -1
+						}
+						if a.node > b.node {
+							return 1
+						}
+						return 0
+					})
+					out[i] = egoNetResult{v: v, flat: flatSlice, err: err}
+				} else {
+					res, err := localDet.Detect(egoNet)
+					releaseGraph(egoNet)
+					out[i] = egoNetResult{v: v, partition: res.Partition, err: err}
+				}
 			}
 		}(cloneDetector(det))
 	}
@@ -517,7 +661,7 @@ func buildEgoNetWithScratch(g *Graph, v NodeID, scratch *[]NodeID) *Graph {
 //   - personaOf: map[NodeID]map[int]NodeID -- original node -> community -> PersonaID
 //   - inverseMap: map[NodeID]NodeID -- PersonaID -> original NodeID
 //   - partitions: map[NodeID]map[NodeID]int -- ego-net partition per original node
-func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[NodeID]map[int]NodeID, map[NodeID]NodeID, map[NodeID]map[NodeID]int, error) {
+func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[NodeID][]commPersona, map[NodeID]NodeID, map[NodeID]egoPartition, error) {
 	// Step 1: find maxNodeID to set next persona ID above existing IDs
 	var maxNodeID NodeID
 	for _, id := range g.Nodes() {
@@ -528,12 +672,11 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 	nextPersona := maxNodeID + 1
 
 	n := len(g.Nodes())
-	personaOf := make(map[NodeID]map[int]NodeID, n)
-	// inverseMap persona count ≈ nodes × avg-communities; len(nodes) is a lower bound
-	// that avoids repeated rehashing in the common case (≤1 community per node).
-	inverseMap := make(map[NodeID]NodeID, n)
+	personaOf := make(map[NodeID][]commPersona, n)
 	// partitions[v] holds the ego-net partition for v: neighbor -> community ID in G_v
-	partitions := make(map[NodeID]map[NodeID]int, n)
+	partitions := make(map[NodeID]egoPartition, n)
+	// inverseMap is created below, after totalPersonaEntries is known, so it can be
+	// pre-sized exactly — avoiding rehash growth allocs when personas >> nodes.
 
 	// Step 2: build ego-nets and detect local communities in parallel.
 	// Isolated nodes (no neighbors) are handled inline without goroutine overhead.
@@ -559,25 +702,93 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 		}
 	}
 
+	// Rebuild disconnected sorted-neighbor lists from g using a single arena backing.
+	// Goroutines signal disconnected via a nil-length non-nil sentinel ([]NodeID{});
+	// the actual sorted neighbor lists are constructed here (main goroutine) so the
+	// per-disconnected-node make([]NodeID, N) allocs in the workers are eliminated.
+	// One backing array covers all disconnected nodes → ~8.5K allocs → 1 for BA-10K.
+	totalDisconnectedNodes := 0
+	for i, r := range results {
+		if r.disconnected != nil { // disconnected sentinel: non-nil, len==0
+			totalDisconnectedNodes += len(g.Neighbors(results[i].v))
+		}
+	}
+	if totalDisconnectedNodes > 0 {
+		disconnectedBacking := make([]NodeID, 0, totalDisconnectedNodes)
+		for i, r := range results {
+			if r.disconnected == nil {
+				continue
+			}
+			start := len(disconnectedBacking)
+			for _, e := range g.Neighbors(r.v) {
+				disconnectedBacking = append(disconnectedBacking, e.To)
+			}
+			slices.Sort(disconnectedBacking[start:])
+			results[i].disconnected = disconnectedBacking[start:len(disconnectedBacking):len(disconnectedBacking)]
+		}
+	}
+
 	// Assign persona nodes for all results (isolated and non-empty alike).
-	// commIDsBuf is a reused scratch slice for sort+dedup — avoids per-node map allocation.
+	//
+	// Arena allocation: one backing slice for all commPersona entries across every node.
+	// Pass 1 counts total entries needed (overestimating connected nodes via len(partition)
+	// instead of unique-community count). Pass 2 appends into the backing slice and stores
+	// subslices per node. Capacity is never exceeded, so the backing array is never
+	// reallocated; previously stored subslices remain valid throughout.
+	totalPersonaEntries := 0
+	for _, r := range results {
+		if r.flat != nil {
+			totalPersonaEntries += len(r.flat) // overestimate (unique comms ≤ nodes)
+		} else if r.partition == nil && r.disconnected == nil {
+			totalPersonaEntries++ // isolated: exactly 1 persona
+		} else if r.disconnected != nil {
+			totalPersonaEntries += len(r.disconnected)
+		} else {
+			totalPersonaEntries += len(r.partition) // overestimate (unique comms ≤ len)
+		}
+	}
+	personaBacking := make([]commPersona, 0, totalPersonaEntries) // single arena alloc
+	// Pre-size inverseMap to exact persona count so it never rehashes during assignment.
+	inverseMap := make(map[NodeID]NodeID, totalPersonaEntries)
+
 	var commIDsBuf []int
 	for _, r := range results {
 		v := r.v
-		personaOf[v] = make(map[int]NodeID, 2) // most nodes have 1–2 communities
-		if r.partition == nil {
+		startIdx := len(personaBacking)
+		if r.flat == nil && r.partition == nil && r.disconnected == nil {
 			// Isolated node: single persona, community 0, no detection needed.
-			personaOf[v][0] = nextPersona
+			personaBacking = append(personaBacking, commPersona{0, nextPersona})
 			inverseMap[nextPersona] = v
 			nextPersona++
-			partitions[v] = make(map[NodeID]int)
+			personaOf[v] = personaBacking[startIdx:len(personaBacking):len(personaBacking)]
+			partitions[v] = egoPartition{} // empty: lookupComm always returns (0,false)
 			continue
 		}
-		partitions[v] = r.partition
-
-		commIDsBuf = commIDsBuf[:0]
-		for _, commID := range r.partition {
-			commIDsBuf = append(commIDsBuf, commID)
+		if r.disconnected != nil {
+			// Disconnected ego-net: each sorted node is its own community (index = commID).
+			partitions[v] = egoPartition{sorted: r.disconnected}
+			for i := range r.disconnected {
+				personaBacking = append(personaBacking, commPersona{i, nextPersona})
+				inverseMap[nextPersona] = v
+				nextPersona++
+			}
+			personaOf[v] = personaBacking[startIdx:len(personaBacking):len(personaBacking)]
+			continue
+		}
+		if r.flat != nil {
+			// Louvain path: goroutine pre-built a sorted []nodeComm slice.
+			partitions[v] = egoPartition{flat: r.flat}
+			commIDsBuf = commIDsBuf[:0]
+			for _, nc := range r.flat {
+				commIDsBuf = append(commIDsBuf, nc.comm)
+			}
+		} else {
+			// Non-Louvain path: partition is a map[NodeID]int.
+			partitions[v] = egoPartition{m: r.partition}
+			commIDsBuf = commIDsBuf[:0]
+			for _, commID := range r.partition {
+				commIDsBuf = append(commIDsBuf, commID)
+			}
 		}
 		slices.Sort(commIDsBuf)
 		prev := -1
@@ -586,10 +797,11 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 				continue
 			}
 			prev = commID
-			personaOf[v][commID] = nextPersona
+			personaBacking = append(personaBacking, commPersona{commID, nextPersona})
 			inverseMap[nextPersona] = v
 			nextPersona++
 		}
+		personaOf[v] = personaBacking[startIdx:len(personaBacking):len(personaBacking)]
 	}
 
 	// Step 4-6: build persona graph with pre-sized adjacency to avoid append growth allocs.
@@ -615,21 +827,21 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 			}
 			commOfVinGu := 0
 			if partU, hasU := partitions[u]; hasU {
-				if cv, vInU := partU[v]; vInU {
+				if cv, vInU := partU.lookupComm(v); vInU {
 					commOfVinGu = cv
 				}
 			}
 			commOfUinGv := 0
 			if partV, hasV := partitions[v]; hasV {
-				if cu, uInV := partV[u]; uInV {
+				if cu, uInV := partV.lookupComm(u); uInV {
 					commOfUinGv = cu
 				}
 			}
-			personaU, uHasComm := personaOf[u][commOfVinGu]
+			personaU, uHasComm := lookupPersona(personaOf[u], commOfVinGu)
 			if !uHasComm {
 				continue
 			}
-			personaV, vHasComm := personaOf[v][commOfUinGv]
+			personaV, vHasComm := lookupPersona(personaOf[v], commOfUinGv)
 			if !vHasComm {
 				continue
 			}
@@ -725,19 +937,19 @@ func buildPersonaGraphIncremental(
 	affected map[NodeID]struct{},
 	prior OverlappingCommunityResult,
 	localDetector CommunityDetector,
-) (*Graph, map[NodeID]map[int]NodeID, map[NodeID]NodeID, map[NodeID]map[NodeID]int, map[NodeID]int, bool, error) {
-	// Step a: deep-copy prior maps (shallow copy of inner maps for unaffected nodes).
-	personaOf := make(map[NodeID]map[int]NodeID, len(prior.personaOf))
+) (*Graph, map[NodeID][]commPersona, map[NodeID]NodeID, map[NodeID]egoPartition, map[NodeID]int, bool, error) {
+	// Step a: deep-copy prior maps (shallow copy of inner slices for unaffected nodes).
+	personaOf := make(map[NodeID][]commPersona, len(prior.personaOf))
 	for v, comms := range prior.personaOf {
-		personaOf[v] = comms // unaffected entries share the inner map (read-only)
+		personaOf[v] = comms // unaffected entries share the backing slice (read-only)
 	}
 	inverseMap := make(map[NodeID]NodeID, len(prior.inverseMap))
 	for pID, orig := range prior.inverseMap {
 		inverseMap[pID] = orig
 	}
-	partitions := make(map[NodeID]map[NodeID]int, len(prior.partitions))
+	partitions := make(map[NodeID]egoPartition, len(prior.partitions))
 	for v, part := range prior.partitions {
-		partitions[v] = part // unaffected entries share the inner map (read-only)
+		partitions[v] = part // unaffected entries share the inner map/slice (read-only)
 	}
 
 	// Step b: compute nextPersona = max(all prior inverseMap keys, all g.Nodes()) + 1.
@@ -758,8 +970,8 @@ func buildPersonaGraphIncremental(
 	// Step c: delete old persona entries for affected nodes.
 	for v := range affected {
 		if comms, ok := personaOf[v]; ok {
-			for _, personaID := range comms {
-				delete(inverseMap, personaID)
+			for _, cp := range comms {
+				delete(inverseMap, cp.persona)
 			}
 		}
 		delete(personaOf, v)
@@ -785,8 +997,8 @@ func buildPersonaGraphIncremental(
 			}
 		}
 		if allIsolatedNew {
-			// Shallow-copy the outer maps (inner maps are shared read-only).
-			newPersonaOf := make(map[NodeID]map[int]NodeID, len(prior.personaOf)+len(affected))
+			// Shallow-copy the outer maps (inner slices are shared read-only).
+			newPersonaOf := make(map[NodeID][]commPersona, len(prior.personaOf)+len(affected))
 			for k, v := range prior.personaOf {
 				newPersonaOf[k] = v
 			}
@@ -794,18 +1006,16 @@ func buildPersonaGraphIncremental(
 			for k, v := range prior.inverseMap {
 				newInverseMap[k] = v
 			}
-			newPartitions := make(map[NodeID]map[NodeID]int, len(prior.partitions)+len(affected))
+			newPartitions := make(map[NodeID]egoPartition, len(prior.partitions)+len(affected))
 			for k, v := range prior.partitions {
 				newPartitions[k] = v
 			}
 
 			for v := range affected {
-				m := make(map[int]NodeID, 1)
-				m[0] = nextPersona
-				newPersonaOf[v] = m
+				newPersonaOf[v] = []commPersona{{0, nextPersona}}
 				newInverseMap[nextPersona] = v
 				nextPersona++
-				newPartitions[v] = make(map[NodeID]int)
+				newPartitions[v] = egoPartition{} // empty partition for new isolated node
 			}
 			// warmPartition = prior persona partition (all prior personas survive).
 			warmPartition := prior.personaPartition
@@ -813,8 +1023,8 @@ func buildPersonaGraphIncremental(
 			// Clone prior persona graph and append new isolated persona nodes.
 			pg := prior.personaGraph.Clone()
 			for v := range affected {
-				for _, personaID := range newPersonaOf[v] {
-					pg.AddNode(personaID, 1.0)
+				for _, cp := range newPersonaOf[v] {
+					pg.AddNode(cp.persona, 1.0)
 				}
 			}
 			return pg, newPersonaOf, newInverseMap, newPartitions, warmPartition, true, nil
@@ -831,21 +1041,16 @@ func buildPersonaGraphIncremental(
 		workerCount = 1
 	}
 
-	// Initialize personaOf entries for all affected nodes (required before parallel dispatch).
-	for v := range affected {
-		personaOf[v] = make(map[int]NodeID)
-	}
-
 	// Separate isolated from non-empty affected nodes.
 	// Build ego-nets once; reuse in goroutine dispatch (no double build).
 	var nonEmptyAffected []egoNetJob
 	for v := range affected {
 		egoNet := buildEgoNet(g, v)
 		if egoNet.NodeCount() == 0 {
-			personaOf[v][0] = nextPersona
+			personaOf[v] = []commPersona{{0, nextPersona}}
 			inverseMap[nextPersona] = v
 			nextPersona++
-			partitions[v] = make(map[NodeID]int)
+			partitions[v] = egoPartition{} // empty partition for isolated nodes
 			continue
 		}
 		nonEmptyAffected = append(nonEmptyAffected, egoNetJob{v: v, egoNet: egoNet})
@@ -863,7 +1068,18 @@ func buildPersonaGraphIncremental(
 		var commIDsBuf2 []int
 		for _, r := range results {
 			v := r.v
-			partitions[v] = r.partition
+			if r.disconnected != nil {
+				// Disconnected ego-net: each neighbor is its own community (index in sorted slice).
+				partitions[v] = egoPartition{sorted: r.disconnected}
+				personaOf[v] = make([]commPersona, 0, len(r.disconnected))
+				for i := range r.disconnected {
+					personaOf[v] = append(personaOf[v], commPersona{i, nextPersona})
+					inverseMap[nextPersona] = v
+					nextPersona++
+				}
+				continue
+			}
+			partitions[v] = egoPartition{m: r.partition}
 
 			commIDsBuf2 = commIDsBuf2[:0]
 			for _, commID := range r.partition {
@@ -871,12 +1087,13 @@ func buildPersonaGraphIncremental(
 			}
 			slices.Sort(commIDsBuf2)
 			prev := -1
+			personaOf[v] = make([]commPersona, 0, 8)
 			for _, commID := range commIDsBuf2 {
 				if commID == prev {
 					continue
 				}
 				prev = commID
-				personaOf[v][commID] = nextPersona
+				personaOf[v] = append(personaOf[v], commPersona{commID, nextPersona})
 				inverseMap[nextPersona] = v
 				nextPersona++
 			}
@@ -909,16 +1126,16 @@ func buildPersonaGraphIncremental(
 
 		// Add new persona nodes (affected nodes got new PersonaIDs in step d).
 		for v := range affected {
-			for _, personaID := range personaOf[v] {
-				personaGraph.AddNode(personaID, 1.0)
+			for _, cp := range personaOf[v] {
+				personaGraph.AddNode(cp.persona, 1.0)
 			}
 		}
 
 		// Collect the set of all persona IDs belonging to affected original nodes.
 		affectedPersonas := make(map[NodeID]struct{})
 		for v := range affected {
-			for _, personaID := range personaOf[v] {
-				affectedPersonas[personaID] = struct{}{}
+			for _, cp := range personaOf[v] {
+				affectedPersonas[cp.persona] = struct{}{}
 			}
 		}
 
@@ -938,22 +1155,22 @@ func buildPersonaGraphIncremental(
 
 				commOfVinGu := 0
 				if partU, hasU := partitions[u]; hasU {
-					if cv, vInU := partU[v]; vInU {
+					if cv, vInU := partU.lookupComm(v); vInU {
 						commOfVinGu = cv
 					}
 				}
 				commOfUinGv := 0
 				if partV, hasV := partitions[v]; hasV {
-					if cu, uInV := partV[u]; uInV {
+					if cu, uInV := partV.lookupComm(u); uInV {
 						commOfUinGv = cu
 					}
 				}
 
-				personaU, uHasComm := personaOf[u][commOfVinGu]
+				personaU, uHasComm := lookupPersona(personaOf[u], commOfVinGu)
 				if !uHasComm {
 					continue
 				}
-				personaV, vHasComm := personaOf[v][commOfUinGv]
+				personaV, vHasComm := lookupPersona(personaOf[v], commOfUinGv)
 				if !vHasComm {
 					continue
 				}
@@ -977,22 +1194,22 @@ func buildPersonaGraphIncremental(
 
 				commOfVinGu := 0
 				if partU, hasU := partitions[u]; hasU {
-					if cv, vInU := partU[v]; vInU {
+					if cv, vInU := partU.lookupComm(v); vInU {
 						commOfVinGu = cv
 					}
 				}
 				commOfUinGv := 0
 				if partV, hasV := partitions[v]; hasV {
-					if cu, uInV := partV[u]; uInV {
+					if cu, uInV := partV.lookupComm(u); uInV {
 						commOfUinGv = cu
 					}
 				}
 
-				personaU, uHasComm := personaOf[u][commOfVinGu]
+				personaU, uHasComm := lookupPersona(personaOf[u], commOfVinGu)
 				if !uHasComm {
 					continue
 				}
-				personaV, vHasComm := personaOf[v][commOfUinGv]
+				personaV, vHasComm := lookupPersona(personaOf[v], commOfUinGv)
 				if !vHasComm {
 					continue
 				}

@@ -5,11 +5,11 @@ import (
 	"slices"
 )
 
-// Detect runs the Louvain community detection algorithm on graph g.
-// It returns ErrDirectedNotSupported for directed graphs.
-// For empty graphs, it returns an empty CommunityResult with no error.
-// The returned Partition is always 0-indexed contiguous.
-func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
+// detect is the internal Louvain implementation. When dst is non-nil the final
+// partition is written directly into dst (cleared first) instead of allocating a
+// new map via reconstructPartitionFromSlice — saving 2 allocs per call on the
+// ego-splitting hot path where the caller provides a pooled scratch map.
+func (d *louvainDetector) detect(g *Graph, dst map[NodeID]int) (CommunityResult, error) {
 	// --- Guard clauses ---
 	if g.IsDirected() {
 		return CommunityResult{}, ErrDirectedNotSupported
@@ -150,7 +150,9 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		}
 
 		// Release replaced supergraph back to pool. Original g is caller-owned.
-		if prevGraph != g {
+		// Scratch-owned supergraphs (superGraphA/B) must NOT be returned to graphPool —
+		// they are reused by the next buildSupergraph call via the ping-pong mechanism.
+		if prevGraph != g && prevGraph != state.sgScratch.superGraphA && prevGraph != state.sgScratch.superGraphB {
 			releaseGraph(prevGraph)
 		}
 		currentGraph = newGraph
@@ -163,8 +165,19 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	}
 
 	// --- Reconstruct final partition using best result found ---
-	finalPartition := reconstructPartitionFromSlice(origNodes, bestNodeMappingSlice, bestSuperPartition)
-	finalPartition = normalizePartitionWithBufs(finalPartition, &state.normUsedBuf, &state.normRemapBuf)
+	var finalPartition map[NodeID]int
+	if dst != nil {
+		// Write directly into caller-provided map (pooled scratch) — no allocation.
+		clear(dst)
+		for i, orig := range origNodes {
+			dst[orig] = bestSuperPartition[bestNodeMappingSlice[i]]
+		}
+		normalizePartitionWithBufs(dst, &state.normUsedBuf, &state.normRemapBuf)
+		finalPartition = dst
+	} else {
+		finalPartition = reconstructPartitionFromSlice(origNodes, bestNodeMappingSlice, bestSuperPartition)
+		finalPartition = normalizePartitionWithBufs(finalPartition, &state.normUsedBuf, &state.normRemapBuf)
+	}
 	q := ComputeModularityWeighted(g, finalPartition, resolution)
 
 	return CommunityResult{
@@ -173,6 +186,22 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		Passes:     totalPasses,
 		Moves:      totalMoves,
 	}, nil
+}
+
+// Detect runs the Louvain community detection algorithm on graph g.
+// It returns ErrDirectedNotSupported for directed graphs.
+// For empty graphs, it returns an empty CommunityResult with no error.
+// The returned Partition is always 0-indexed contiguous.
+func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
+	return d.detect(g, nil)
+}
+
+// detectInto is like Detect but writes the final partition into dst instead of
+// allocating a new map. dst is cleared before use. Callers must not use dst
+// concurrently and must not return dst to a pool before reading the result.
+// Used by ego-splitting to eliminate per-ego-net map allocations.
+func (d *louvainDetector) detectInto(g *Graph, dst map[NodeID]int) (CommunityResult, error) {
+	return d.detect(g, dst)
 }
 
 // reconstructPartition maps original NodeIDs to their final community IDs
@@ -356,6 +385,13 @@ type supergraphScratch struct {
 	// Safety: both are overwritten AFTER all reads from the previous supergraph's adjacency/sortedNodes.
 	edgeBacking   []Edge   // backing array for newGraph adjacency slices
 	sortedSuperIDs []NodeID // pre-cached sortedNodes for newGraph (IDs 0..N-1)
+	// superGraphA/B implement ping-pong supergraph reuse: the two graphs are owned by
+	// this scratch (not graphPool) and survive across GC cycles. superFlip selects which
+	// graph is written on the current pass; the other is being consumed as currentGraph.
+	// This eliminates graphPool cold-start allocs (hmap + bucket array) after GC eviction.
+	superGraphA *Graph
+	superGraphB *Graph
+	superFlip   bool // false→write to A next, true→write to B next
 }
 
 // buildSupergraph compresses the current graph by merging each community into a supernode.
@@ -480,7 +516,37 @@ func buildSupergraph(g *Graph, partition map[NodeID]int, sc *supergraphScratch) 
 	}
 	edgeBacking := sc.edgeBacking
 
-	newGraph := newGraphSized(false, communityCount)
+	// Ping-pong between superGraphA and superGraphB — both are scratch-owned and survive
+	// GC cycles, so their map bucket arrays stay warm across Detect calls.
+	var newGraph *Graph
+	if !sc.superFlip {
+		if sc.superGraphA == nil {
+			sc.superGraphA = &Graph{
+				nodes:     make(map[NodeID]float64, communityCount),
+				adjacency: make(map[NodeID][]Edge, communityCount),
+			}
+		} else {
+			clear(sc.superGraphA.nodes)
+			clear(sc.superGraphA.adjacency)
+			sc.superGraphA.totalWeight = 0
+			sc.superGraphA.sortedNodes = nil
+		}
+		newGraph = sc.superGraphA
+	} else {
+		if sc.superGraphB == nil {
+			sc.superGraphB = &Graph{
+				nodes:     make(map[NodeID]float64, communityCount),
+				adjacency: make(map[NodeID][]Edge, communityCount),
+			}
+		} else {
+			clear(sc.superGraphB.nodes)
+			clear(sc.superGraphB.adjacency)
+			sc.superGraphB.totalWeight = 0
+			sc.superGraphB.sortedNodes = nil
+		}
+		newGraph = sc.superGraphB
+	}
+	sc.superFlip = !sc.superFlip
 	off := 0
 	for i := range communityCount {
 		super := NodeID(i)

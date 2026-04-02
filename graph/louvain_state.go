@@ -161,11 +161,29 @@ func (st *louvainState) reset(g *Graph, seed int64, initialPartition map[NodeID]
 	}
 
 	// Step 3: compact to 0-indexed contiguous IDs (nodes already sorted — deterministic remap).
-	remap := make(map[int]int, len(nodes))
+	// Use normRemapBuf (a pooled []int) instead of map[int]int to eliminate one heap alloc.
+	// normRemapBuf is overwritten by normalizePartitionWithBufs at the end of runOnce, so
+	// borrowing it here is safe (the two uses do not overlap).
+	maxPartComm := 0
+	for _, c := range st.partition {
+		if c > maxPartComm {
+			maxPartComm = c
+		}
+	}
+	needRemap := maxPartComm + 1
+	if cap(st.normRemapBuf) >= needRemap {
+		st.normRemapBuf = st.normRemapBuf[:needRemap]
+	} else {
+		st.normRemapBuf = make([]int, needRemap)
+	}
+	for i := range st.normRemapBuf {
+		st.normRemapBuf[i] = -1
+	}
+	remap := st.normRemapBuf
 	next := 0
 	for _, nid := range nodes {
 		c := st.partition[nid]
-		if _, exists := remap[c]; !exists {
+		if remap[c] == -1 {
 			remap[c] = next
 			next++
 		}

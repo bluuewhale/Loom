@@ -224,7 +224,9 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 		}
 
 		// Release replaced supergraph back to pool. Original g is caller-owned.
-		if prevGraph != g {
+		// Scratch-owned supergraphs (superGraphA/B) must NOT be returned to graphPool —
+		// they are reused by the next buildSupergraph call via the ping-pong mechanism.
+		if prevGraph != g && prevGraph != state.sgScratch.superGraphA && prevGraph != state.sgScratch.superGraphB {
 			releaseGraph(prevGraph)
 		}
 		currentGraph = newGraph
