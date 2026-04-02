@@ -182,6 +182,20 @@ func BenchmarkLeidenWarmStart(b *testing.B) {
 	}
 }
 
+// BenchmarkEgoSplitting1K measures EgoSplitting on a 1K-node Barabasi-Albert graph.
+func BenchmarkEgoSplitting1K(b *testing.B) {
+	det := NewEgoSplitting(EgoSplittingOptions{
+		LocalDetector:  NewLouvain(LouvainOptions{Seed: 1}),
+		GlobalDetector: NewLouvain(LouvainOptions{Seed: 1, MaxPasses: 1}),
+	})
+	det.Detect(bench1K)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		det.Detect(bench1K)
+	}
+}
+
 // BenchmarkEgoSplitting10K measures EgoSplitting on a 10K-node Barabasi-Albert graph.
 // Target: <= 300ms/op. Uses the shared bench10K graph (10K nodes, ~50K edges, BA model).
 // Seed 1 matches the established benchmark pattern (same as BenchmarkLouvain10K).
