@@ -35,13 +35,59 @@ func NewGraph(directed bool) *Graph {
 	}
 }
 
-// subgraphSeenPool reuses the edge-dedup map for Subgraph calls to reduce
-// allocation pressure when Subgraph is called repeatedly (e.g., 10K calls
-// during EgoSplitting buildPersonaGraph).
-var subgraphSeenPool = sync.Pool{
+// newGraphSized returns a Graph ready to hold n nodes. It acquires from graphPool
+// so callers that call releaseGraph return it for reuse; callers that do not are
+// safe — the object is GC-collected normally. The n hint is retained for
+// documentation; pool reuse means actual map capacity may be larger.
+func newGraphSized(directed bool, n int) *Graph {
+	return acquireGraph(directed)
+}
+
+// graphPool pools *Graph objects to reduce allocation pressure from repeated
+// ego-net and supergraph creation. Callers that want to return a Graph to the
+// pool must call releaseGraph — callers that do not are safe; the object is
+// simply GC-collected normally.
+var graphPool = sync.Pool{
 	New: func() any {
-		m := make(map[[2]NodeID]struct{}, 32)
+		return &Graph{
+			nodes:     make(map[NodeID]float64, 64),
+			adjacency: make(map[NodeID][]Edge, 64),
+		}
+	},
+}
+
+// acquireGraph obtains a Graph from the pool. The maps are cleared and metadata
+// fields are reset; retained bucket capacity avoids rehashing on reuse.
+func acquireGraph(directed bool) *Graph {
+	g := graphPool.Get().(*Graph)
+	clear(g.nodes)
+	clear(g.adjacency)
+	g.directed = directed
+	g.totalWeight = 0
+	g.sortedNodes = nil
+	return g
+}
+
+// releaseGraph returns g to the pool. Callers must not use g after this call,
+// and must ensure no other live reference to g exists.
+func releaseGraph(g *Graph) {
+	graphPool.Put(g)
+}
+
+// subgraphNodeSetPool reuses the nodeSet membership map for Subgraph calls.
+var subgraphNodeSetPool = sync.Pool{
+	New: func() any {
+		m := make(map[NodeID]struct{}, 32)
 		return &m
+	},
+}
+
+// subgraphDegreesPool reuses the per-node degree scratch slice in Subgraph.
+// Eliminates one allocation per Subgraph call (10K+ calls during EgoSplitting).
+var subgraphDegreesPool = sync.Pool{
+	New: func() any {
+		s := make([]int, 0, 32)
+		return &s
 	},
 }
 
@@ -183,6 +229,8 @@ func (g *Graph) IsDirected() bool {
 }
 
 // Clone returns a deep copy of the graph. The clone is fully independent of the original.
+// Uses a single backing array for all edge slices (same strategy as Subgraph/buildSupergraph),
+// reducing alloc count from O(N) per-node slices to O(1) regardless of node count.
 func (g *Graph) Clone() *Graph {
 	c := &Graph{
 		directed:    g.directed,
@@ -193,13 +241,21 @@ func (g *Graph) Clone() *Graph {
 	for id, w := range g.nodes {
 		c.nodes[id] = w
 	}
+	// Count total edges for a single backing allocation.
+	totalEdges := 0
+	for _, edges := range g.adjacency {
+		totalEdges += len(edges)
+	}
+	backing := make([]Edge, totalEdges)
+	off := 0
 	for id, edges := range g.adjacency {
 		if edges == nil {
 			c.adjacency[id] = nil
 		} else {
-			copied := make([]Edge, len(edges))
-			copy(copied, edges)
-			c.adjacency[id] = copied
+			n := len(edges)
+			c.adjacency[id] = backing[off : off+n : off+n]
+			copy(c.adjacency[id], edges)
+			off += n
 		}
 	}
 	return c
@@ -208,49 +264,78 @@ func (g *Graph) Clone() *Graph {
 // Subgraph returns a new graph containing only the specified nodes and the
 // edges between them. totalWeight is recalculated from included edges.
 func (g *Graph) Subgraph(nodeIDs []NodeID) *Graph {
-	nodeSet := make(map[NodeID]struct{}, len(nodeIDs))
+	// Sort nodeIDs in-place: enables pre-caching sortedNodes (replaces map iteration
+	// + sort in Nodes() on first call) and has no effect on the resulting subgraph.
+	slices.Sort(nodeIDs)
+
+	nodeSetPtr := subgraphNodeSetPool.Get().(*map[NodeID]struct{})
+	nodeSet := *nodeSetPtr
+	for k := range nodeSet {
+		delete(nodeSet, k)
+	}
+	defer subgraphNodeSetPool.Put(nodeSetPtr)
 	for _, id := range nodeIDs {
 		nodeSet[id] = struct{}{}
 	}
 
-	sub := NewGraph(g.directed)
-	// Add nodes
-	for _, id := range nodeIDs {
+	// Pre-count degree per node (pass 1): degree[i] = edges from nodeIDs[i] to nodeSet.
+	// For undirected graphs, g.adjacency stores both directions, so degree[i] is the
+	// exact number of Edge entries that will end up in sub.adjacency[nodeIDs[i]].
+	//
+	// Pass 2 uses a single contiguous backing array for all adjacency slices,
+	// eliminating per-node make([]Edge,...) calls. degrees is pooled to eliminate
+	// the one-per-call allocation.
+	degreesPtr := subgraphDegreesPool.Get().(*[]int)
+	if cap(*degreesPtr) >= len(nodeIDs) {
+		*degreesPtr = (*degreesPtr)[:len(nodeIDs)]
+		clear(*degreesPtr)
+	} else {
+		*degreesPtr = make([]int, len(nodeIDs))
+	}
+	degrees := *degreesPtr
+	defer subgraphDegreesPool.Put(degreesPtr)
+	totalEdgeSlots := 0
+	for i, from := range nodeIDs {
+		for _, e := range g.adjacency[from] {
+			if _, inSet := nodeSet[e.To]; inSet {
+				degrees[i]++
+			}
+		}
+		totalEdgeSlots += degrees[i]
+	}
+
+	// Single backing array covers all adjacency lists — one allocation replaces N.
+	// sortedIDs accumulates valid IDs in sorted order to pre-cache sortedNodes,
+	// eliminating the Nodes() map-iteration + sort on first call.
+	edgeBacking := make([]Edge, totalEdgeSlots)
+	sub := newGraphSized(g.directed, len(nodeIDs))
+	sortedIDs := make([]NodeID, 0, len(nodeIDs))
+	off := 0
+	for i, id := range nodeIDs {
 		if w, ok := g.nodes[id]; ok {
 			sub.nodes[id] = w
-			if _, ok2 := sub.adjacency[id]; !ok2 {
-				sub.adjacency[id] = nil
+			sortedIDs = append(sortedIDs, id) // nodeIDs is sorted → sortedIDs is sorted
+			d := degrees[i]
+			if d > 0 {
+				sub.adjacency[id] = edgeBacking[off : off : off+d]
+				off += d
 			}
 		}
 	}
+	sub.sortedNodes = sortedIDs
 
-	// Add edges where both endpoints are in nodeSet.
-	// For undirected graphs, we process each edge only once to avoid double-counting totalWeight.
-	seenPtr := subgraphSeenPool.Get().(*map[[2]NodeID]struct{})
-	seen := *seenPtr
-	// Clear reused map from prior call.
-	for k := range seen {
-		delete(seen, k)
-	}
-	defer func() {
-		subgraphSeenPool.Put(seenPtr)
-	}()
+	// Wire edges (pass 2): no growth allocs — adjacency slices are exactly pre-sized.
+	// For undirected, process canonical (lo, hi) direction only to count totalWeight once;
+	// both directions are written directly into pre-allocated adjacency slices.
 	for _, from := range nodeIDs {
 		for _, e := range g.adjacency[from] {
 			if _, inSet := nodeSet[e.To]; !inSet {
 				continue
 			}
 			if !g.directed {
-				// Use canonical key (min, max) to avoid processing both directions
-				lo, hi := from, e.To
-				if lo > hi {
-					lo, hi = hi, lo
+				if e.To < from {
+					continue // canonical direction: skip reverse
 				}
-				key := [2]NodeID{lo, hi}
-				if _, already := seen[key]; already {
-					continue
-				}
-				seen[key] = struct{}{}
 			}
 			sub.adjacency[from] = append(sub.adjacency[from], Edge{To: e.To, Weight: e.Weight})
 			sub.totalWeight += e.Weight
@@ -260,6 +345,181 @@ func (g *Graph) Subgraph(nodeIDs []NodeID) *Graph {
 		}
 	}
 	return sub
+}
+
+// subgraphWithScratch is like Subgraph but reuses caller-provided edgeBacking and
+// sortedIDsBuf across calls to eliminate 2 allocs per ego-net build.
+// The graph itself is still acquired from graphPool (avoids O(buckets) clear cost
+// on large maps that accumulate after hub-node processing).
+// nodeIDs is sorted in-place; edgeBacking, sortedIDsBuf, and degreesBuf grow lazily.
+// Membership test uses binary search on the sorted nodeIDs slice instead of a shared
+// pool-based hash map, eliminating pool contention and hash overhead for small sets.
+func subgraphWithScratch(g *Graph, nodeIDs []NodeID, edgeBacking *[]Edge, sortedIDsBuf *[]NodeID, degreesBuf *[]int) *Graph {
+	slices.Sort(nodeIDs)
+
+	// Grow degreesBuf lazily (per-goroutine scratch — no pool contention).
+	if cap(*degreesBuf) < len(nodeIDs) {
+		*degreesBuf = make([]int, len(nodeIDs), len(nodeIDs)+len(nodeIDs)/4+1)
+	} else {
+		*degreesBuf = (*degreesBuf)[:len(nodeIDs)]
+		clear(*degreesBuf)
+	}
+	degrees := *degreesBuf
+
+	totalEdgeSlots := 0
+	for i, from := range nodeIDs {
+		for _, e := range g.adjacency[from] {
+			if _, inSet := slices.BinarySearch(nodeIDs, e.To); inSet {
+				degrees[i]++
+			}
+		}
+		totalEdgeSlots += degrees[i]
+	}
+
+	// Grow edgeBacking lazily: eliminates per-call make([]Edge, N) alloc.
+	if cap(*edgeBacking) < totalEdgeSlots {
+		*edgeBacking = make([]Edge, totalEdgeSlots, totalEdgeSlots+totalEdgeSlots/4+1)
+	} else {
+		*edgeBacking = (*edgeBacking)[:totalEdgeSlots]
+	}
+	eb := *edgeBacking
+
+	// Grow sortedIDsBuf lazily; accumulates valid IDs in sorted order.
+	if cap(*sortedIDsBuf) < len(nodeIDs) {
+		*sortedIDsBuf = make([]NodeID, 0, len(nodeIDs)+len(nodeIDs)/4+1)
+	} else {
+		*sortedIDsBuf = (*sortedIDsBuf)[:0]
+	}
+
+	sub := newGraphSized(g.directed, len(nodeIDs))
+	off := 0
+	for i, id := range nodeIDs {
+		if w, ok := g.nodes[id]; ok {
+			sub.nodes[id] = w
+			*sortedIDsBuf = append(*sortedIDsBuf, id)
+			d := degrees[i]
+			if d > 0 {
+				sub.adjacency[id] = eb[off : off : off+d]
+				off += d
+			}
+		}
+	}
+	sub.sortedNodes = *sortedIDsBuf
+
+	for _, from := range nodeIDs {
+		for _, e := range g.adjacency[from] {
+			if _, inSet := slices.BinarySearch(nodeIDs, e.To); !inSet {
+				continue
+			}
+			if !g.directed {
+				if e.To < from {
+					continue
+				}
+			}
+			sub.adjacency[from] = append(sub.adjacency[from], Edge{To: e.To, Weight: e.Weight})
+			sub.totalWeight += e.Weight
+			if !g.directed && from != e.To {
+				sub.adjacency[e.To] = append(sub.adjacency[e.To], Edge{To: from, Weight: e.Weight})
+			}
+		}
+	}
+	return sub
+}
+
+// subgraphInto rebuilds dst in-place as the subgraph of g induced by nodeIDs,
+// reusing caller-provided scratch buffers to eliminate all per-call allocations.
+// nodeIDs is sorted in-place (order has no effect on the resulting subgraph).
+// edgeBacking and sortedIDsBuf grow lazily and must not be shared across goroutines.
+// dst must be owned by the caller; it is cleared and rebuilt on each call.
+func subgraphInto(g *Graph, nodeIDs []NodeID, edgeBacking *[]Edge, sortedIDsBuf *[]NodeID, dst *Graph) {
+	// Clear dst in-place: retain map bucket capacity (avoids rehashing on reuse).
+	clear(dst.nodes)
+	clear(dst.adjacency)
+	dst.directed = g.directed
+	dst.totalWeight = 0
+	dst.sortedNodes = nil
+
+	if len(nodeIDs) == 0 {
+		return
+	}
+
+	slices.Sort(nodeIDs)
+
+	nodeSetPtr := subgraphNodeSetPool.Get().(*map[NodeID]struct{})
+	nodeSet := *nodeSetPtr
+	for k := range nodeSet {
+		delete(nodeSet, k)
+	}
+	defer subgraphNodeSetPool.Put(nodeSetPtr)
+	for _, id := range nodeIDs {
+		nodeSet[id] = struct{}{}
+	}
+
+	degreesPtr := subgraphDegreesPool.Get().(*[]int)
+	if cap(*degreesPtr) >= len(nodeIDs) {
+		*degreesPtr = (*degreesPtr)[:len(nodeIDs)]
+		clear(*degreesPtr)
+	} else {
+		*degreesPtr = make([]int, len(nodeIDs))
+	}
+	degrees := *degreesPtr
+	defer subgraphDegreesPool.Put(degreesPtr)
+	totalEdgeSlots := 0
+	for i, from := range nodeIDs {
+		for _, e := range g.adjacency[from] {
+			if _, inSet := nodeSet[e.To]; inSet {
+				degrees[i]++
+			}
+		}
+		totalEdgeSlots += degrees[i]
+	}
+
+	// Grow edgeBacking lazily; reuse across calls eliminates per-call alloc.
+	if cap(*edgeBacking) < totalEdgeSlots {
+		*edgeBacking = make([]Edge, totalEdgeSlots, totalEdgeSlots+totalEdgeSlots/4+1)
+	} else {
+		*edgeBacking = (*edgeBacking)[:totalEdgeSlots]
+	}
+	eb := *edgeBacking
+
+	// Grow sortedIDsBuf lazily; accumulates valid IDs in sorted order.
+	if cap(*sortedIDsBuf) < len(nodeIDs) {
+		*sortedIDsBuf = make([]NodeID, 0, len(nodeIDs)+len(nodeIDs)/4+1)
+	} else {
+		*sortedIDsBuf = (*sortedIDsBuf)[:0]
+	}
+
+	off := 0
+	for i, id := range nodeIDs {
+		if w, ok := g.nodes[id]; ok {
+			dst.nodes[id] = w
+			*sortedIDsBuf = append(*sortedIDsBuf, id)
+			d := degrees[i]
+			if d > 0 {
+				dst.adjacency[id] = eb[off : off : off+d]
+				off += d
+			}
+		}
+	}
+	dst.sortedNodes = *sortedIDsBuf
+
+	for _, from := range nodeIDs {
+		for _, e := range g.adjacency[from] {
+			if _, inSet := nodeSet[e.To]; !inSet {
+				continue
+			}
+			if !g.directed {
+				if e.To < from {
+					continue
+				}
+			}
+			dst.adjacency[from] = append(dst.adjacency[from], Edge{To: e.To, Weight: e.Weight})
+			dst.totalWeight += e.Weight
+			if !g.directed && from != e.To {
+				dst.adjacency[e.To] = append(dst.adjacency[e.To], Edge{To: from, Weight: e.Weight})
+			}
+		}
+	}
 }
 
 // WeightToComm returns the sum of edge weights from node n to all nodes in community comm,

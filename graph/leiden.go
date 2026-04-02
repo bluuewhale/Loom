@@ -108,30 +108,38 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 	}
 	maxIterations := d.opts.MaxIterations // 0 = unlimited
 
-	// nodeMapping maps each original NodeID to its corresponding supernode NodeID
-	// in the current supergraph. Initially the identity mapping.
+	// Acquire pooled state early so we can reuse its map buffers for nodeMapping too.
+	state := acquireLeidenState(g, seed)
+	defer releaseLeidenState(state)
+
+	// nodeMappingSlice tracks origNodes[i] → current supernode NodeID.
 	origNodes := g.Nodes()
-	nodeMapping := make(map[NodeID]NodeID, len(origNodes))
-	for _, n := range origNodes {
-		nodeMapping[n] = n
+	sz := len(origNodes)
+	if cap(state.nodeMappingSliceA) < sz {
+		state.nodeMappingSliceA = make([]NodeID, sz, sz+sz/4+1)
+	} else {
+		state.nodeMappingSliceA = state.nodeMappingSliceA[:sz]
 	}
+	copy(state.nodeMappingSliceA, origNodes) // identity mapping
+	nodeMappingSlice := state.nodeMappingSliceA
 
 	currentGraph := g
-	csr := buildCSR(currentGraph)
+	buildCSRInto(currentGraph, &state.csrBuf)
+	csr := state.csrBuf // cheap header copy; backing arrays shared with state.csrBuf
 	totalPasses := 0
 	totalMoves := 0
 
-	// Best-partition tracking: retain the highest-Q partition found so far
-	// to guard against degenerate convergence on later passes.
+	// Best-partition tracking: retain the highest-Q partition found so far.
 	bestQ := math.Inf(-1)
-	bestNodeMapping := make(map[NodeID]NodeID, len(origNodes))
-	for _, n := range origNodes {
-		bestNodeMapping[n] = n
+	if cap(state.nodeMappingSliceB) < sz {
+		state.nodeMappingSliceB = make([]NodeID, sz, sz+sz/4+1)
+	} else {
+		state.nodeMappingSliceB = state.nodeMappingSliceB[:sz]
 	}
-	var bestSuperPartition map[NodeID]int
-
-	state := acquireLeidenState(currentGraph, seed)
-	defer releaseLeidenState(state)
+	copy(state.nodeMappingSliceB, origNodes) // identity mapping
+	bestNodeMappingSlice := state.nodeMappingSliceB
+	bestSuperPartition := state.bestSuperPartBuf
+	clear(bestSuperPartition)
 
 	firstPass := true
 	for {
@@ -143,19 +151,25 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 		}
 
 		// Phase 1: local move — reuse Louvain phase1 via louvainState wrapper.
+		// neighborBuf/neighborSeen/commStr are flat slices shared by pointer; no copy-back needed.
+		// neighborDirty/candidateBuf/idxBuf may be appended beyond capacity — copy back headers.
 		ls := &louvainState{
-			partition:     state.partition,
-			commStr:       state.commStr,
-			neighborBuf:   state.neighborBuf,
-			neighborDirty: state.neighborDirty,
-			candidateBuf:  state.candidateBuf,
-			rng:           state.rng,
+			partition:      state.partition,
+			commStr:        state.commStr,
+			neighborBuf:    state.neighborBuf,
+			neighborSeen:   state.neighborSeen,
+			neighborDirty:  state.neighborDirty,
+			candidateBuf:   state.candidateBuf,
+			idxBuf:         state.idxBuf,
+			partitionByIdx: state.partitionByIdx,
+			rng:            state.rng,
 		}
 		moves := phase1(currentGraph, &csr, ls, resolution, currentGraph.TotalWeight())
 		state.partition = ls.partition
-		state.commStr = ls.commStr
 		state.neighborDirty = ls.neighborDirty
 		state.candidateBuf = ls.candidateBuf
+		state.idxBuf = ls.idxBuf
+		state.partitionByIdx = ls.partitionByIdx
 		totalPasses++
 		totalMoves += moves
 
@@ -163,15 +177,14 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 		refinePartitionInPlace(currentGraph, &csr, state.partition, state)
 
 		// Best-Q tracking using refinedPartition (reflects actual aggregation structure).
-		candidatePartition := reconstructPartition(origNodes, nodeMapping, state.refinedPartition)
-		candidateQ := ComputeModularityWeighted(g, candidatePartition, resolution)
+		// Reuse scratchPartition to avoid allocating a new N-entry map every pass.
+		reconstructPartitionIntoSlice(origNodes, nodeMappingSlice, state.refinedPartition, state.scratchPartition)
+		candidateQ := ComputeModularityWeighted(g, state.scratchPartition, resolution)
 		if candidateQ > bestQ {
 			bestQ = candidateQ
-			for k, v := range nodeMapping {
-				bestNodeMapping[k] = v
-			}
-			// Copy refinedPartition — state maps are cleared on reset each iteration.
-			bestSuperPartition = make(map[NodeID]int, len(state.refinedPartition))
+			copy(bestNodeMappingSlice, nodeMappingSlice) // O(N) slice copy; no map overhead
+			// Copy refinedPartition → bestSuperPartition (in-place, pooled map).
+			clear(bestSuperPartition)
 			for k, v := range state.refinedPartition {
 				bestSuperPartition[k] = v
 			}
@@ -185,28 +198,40 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 		}
 
 		// Phase 3: aggregate using refined partition (KEY Leiden difference vs. Louvain).
-		newGraph, superToRep := buildSupergraph(currentGraph, state.refinedPartition)
+		prevGraph := currentGraph
+		newGraph, superToRep := buildSupergraph(currentGraph, state.refinedPartition, &state.sgScratch)
 
-		// Build reverse map: refined community ID -> new supernode NodeID.
-		// superToRep maps newSuperNode -> representative node in currentGraph.
-		// The community of that representative is: state.refinedPartition[rep].
-		commToNewSuper := make(map[int]NodeID, len(superToRep))
-		for newSuper, rep := range superToRep {
+		// Build reverse slice: refined community ID -> new supernode NodeID.
+		// Refined partition IDs are in [0, currentGraph.NodeCount()), so a slice
+		// indexed by comm ID replaces the map — zero-allocation after first pass.
+		curN := currentGraph.NodeCount()
+		if cap(state.commToNewSuperBuf) < curN {
+			state.commToNewSuperBuf = make([]NodeID, curN)
+		} else {
+			state.commToNewSuperBuf = state.commToNewSuperBuf[:curN]
+		}
+		commToNewSuper := state.commToNewSuperBuf
+		for i, rep := range superToRep {
 			comm := state.refinedPartition[rep]
-			commToNewSuper[comm] = newSuper
+			commToNewSuper[comm] = NodeID(i)
 		}
 
-		// Update nodeMapping to point original nodes to the new supernodes.
-		// Use refinedPartition (not partition) for consistency with aggregation.
-		newMapping := make(map[NodeID]NodeID, len(nodeMapping))
-		for orig, curSuper := range nodeMapping {
-			comm := state.refinedPartition[curSuper]
-			newMapping[orig] = commToNewSuper[comm]
+		// Update nodeMappingSlice in-place: each original node follows its current
+		// supernode through refinedPartition then commToNewSuper to the new supernode.
+		for i := range nodeMappingSlice {
+			curSuper := nodeMappingSlice[i]
+			nodeMappingSlice[i] = commToNewSuper[state.refinedPartition[curSuper]]
 		}
-		nodeMapping = newMapping
 
+		// Release replaced supergraph back to pool. Original g is caller-owned.
+		// Scratch-owned supergraphs (superGraphA/B) must NOT be returned to graphPool —
+		// they are reused by the next buildSupergraph call via the ping-pong mechanism.
+		if prevGraph != g && prevGraph != state.sgScratch.superGraphA && prevGraph != state.sgScratch.superGraphB {
+			releaseGraph(prevGraph)
+		}
 		currentGraph = newGraph
-		csr = buildCSR(currentGraph)
+		buildCSRInto(currentGraph, &state.csrBuf)
+		csr = state.csrBuf // header copy; backing arrays reused from state.csrBuf
 		// If the supergraph has collapsed to a single node, we've fully converged.
 		if currentGraph.NodeCount() <= 1 {
 			break
@@ -214,8 +239,8 @@ func (d *leidenDetector) runOnce(g *Graph, seed int64) (CommunityResult, error) 
 	}
 
 	// --- Reconstruct final partition using best result found ---
-	finalPartition := reconstructPartition(origNodes, bestNodeMapping, bestSuperPartition)
-	finalPartition = normalizePartition(finalPartition)
+	finalPartition := reconstructPartitionFromSlice(origNodes, bestNodeMappingSlice, bestSuperPartition)
+	finalPartition = normalizePartitionWithBufs(finalPartition, &state.normUsedBuf, &state.normRemapBuf)
 	q := ComputeModularityWeighted(g, finalPartition, resolution)
 
 	return CommunityResult{
@@ -320,14 +345,14 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 
 		// Mark inComm bits for every node in this community.
 		for _, p := range st.commSortedPairs[start:end] {
-			st.inCommBits[csr.idToIdx[p.node]] = true
+			st.inCommBits[csr.nodeToIdx(p.node)] = true
 		}
 
 		// BFS from each unvisited node — each BFS discovers one connected component.
-		// Queue stores int32 CSR dense indices: csr.adjByIdx[idx] is a direct slice
-		// access, replacing the g.Neighbors() adjacency map lookup.
+		// Queue stores int32 CSR dense indices; adjIdxFlat provides (neighbor-idx, weight)
+		// pairs with no map lookups — pure slice accesses throughout the BFS.
 		for _, p := range st.commSortedPairs[start:end] {
-			startIdx := csr.idToIdx[p.node]
+			startIdx := csr.nodeToIdx(p.node)
 			if st.visitedBits[startIdx] {
 				continue
 			}
@@ -338,19 +363,17 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 			for head < len(st.bfsQueue) {
 				curIdx := st.bfsQueue[head]
 				head++
-				cur := csr.nodeIDs[curIdx]
-				st.refinedPartition[cur] = nextID
-				for _, e := range csr.adjByIdx[curIdx] { // direct slice: no map lookup
-					if e.To == cur {
+				st.refinedPartition[csr.nodeIDs[curIdx]] = nextID
+				for _, e := range csr.neighborsIdx(curIdx) {
+					if e.ToIdx == curIdx {
 						continue // skip self-loops
 					}
-					toIdx := csr.idToIdx[e.To]
-					if !st.inCommBits[toIdx] {
+					if !st.inCommBits[e.ToIdx] {
 						continue // skip cross-community edges
 					}
-					if !st.visitedBits[toIdx] {
-						st.visitedBits[toIdx] = true
-						st.bfsQueue = append(st.bfsQueue, toIdx)
+					if !st.visitedBits[e.ToIdx] {
+						st.visitedBits[e.ToIdx] = true
+						st.bfsQueue = append(st.bfsQueue, e.ToIdx)
 					}
 				}
 			}
@@ -359,7 +382,7 @@ func refinePartitionInPlace(g *Graph, csr *csrGraph, partition map[NodeID]int, s
 
 		// Clear inComm and visited bits — only touches nodes in this community.
 		for _, p := range st.commSortedPairs[start:end] {
-			idx := csr.idToIdx[p.node]
+			idx := csr.nodeToIdx(p.node)
 			st.inCommBits[idx] = false
 			st.visitedBits[idx] = false
 		}
