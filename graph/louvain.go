@@ -49,16 +49,26 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	maxPasses := d.opts.MaxPasses // 0 = unlimited
 	seed := d.opts.Seed           // 0 = random (handled inside acquireLouvainState)
 
-	// nodeMapping maps each original NodeID to its corresponding supernode NodeID
-	// in the current supergraph. Initially the identity mapping.
-	origNodes := g.Nodes()
-	nodeMapping := make(map[NodeID]NodeID, len(origNodes))
-	for _, n := range origNodes {
-		nodeMapping[n] = n
-	}
-
+	// Acquire state early so csrBuf and sgScratch are available for the initial CSR build.
 	currentGraph := g
-	csr := buildCSR(currentGraph)
+	state := acquireLouvainState(currentGraph, seed)
+	defer releaseLouvainState(state)
+
+	// nodeMappingSlice tracks origNodes[i] → current supernode NodeID.
+	// Slice copy/range eliminates the map range and map lookup overhead of the old
+	// map[NodeID]NodeID approach for the small ego-nets dominating the hot path.
+	origNodes := g.Nodes()
+	sz := len(origNodes)
+	if cap(state.nodeMappingSliceA) < sz {
+		state.nodeMappingSliceA = make([]NodeID, sz, sz+sz/4+1)
+	} else {
+		state.nodeMappingSliceA = state.nodeMappingSliceA[:sz]
+	}
+	copy(state.nodeMappingSliceA, origNodes) // identity mapping
+	nodeMappingSlice := state.nodeMappingSliceA
+
+	buildCSRInto(currentGraph, &state.csrBuf)
+	csr := state.csrBuf // cheap header copy; backing arrays shared with state.csrBuf
 	totalPasses := 0
 	totalMoves := 0
 
@@ -66,17 +76,17 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	// after the most recent phase1 pass.
 	var superPartition map[NodeID]int
 
-	// Best-partition tracking: retain the highest-Q partition found so far
-	// to guard against degenerate convergence on later passes.
+	// Best-partition tracking: retain the highest-Q partition found so far.
 	bestQ := math.Inf(-1)
-	bestNodeMapping := make(map[NodeID]NodeID, len(origNodes))
-	for _, n := range origNodes {
-		bestNodeMapping[n] = n
+	if cap(state.nodeMappingSliceB) < sz {
+		state.nodeMappingSliceB = make([]NodeID, sz, sz+sz/4+1)
+	} else {
+		state.nodeMappingSliceB = state.nodeMappingSliceB[:sz]
 	}
-	var bestSuperPartition map[NodeID]int
-
-	state := acquireLouvainState(currentGraph, seed)
-	defer releaseLouvainState(state)
+	copy(state.nodeMappingSliceB, origNodes) // identity mapping
+	bestNodeMappingSlice := state.nodeMappingSliceB
+	bestSuperPartition := state.bestSuperPartBuf
+	clear(bestSuperPartition)
 
 	firstPass := true
 	for {
@@ -93,15 +103,14 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		superPartition = state.partition
 
 		// Compute current partition quality to track best result.
-		candidatePartition := reconstructPartition(origNodes, nodeMapping, superPartition)
-		candidateQ := ComputeModularityWeighted(g, candidatePartition, resolution)
+		// Reuse scratchPartition to avoid allocating a new N-entry map every pass.
+		reconstructPartitionIntoSlice(origNodes, nodeMappingSlice, superPartition, state.scratchPartition)
+		candidateQ := ComputeModularityWeighted(g, state.scratchPartition, resolution)
 		if candidateQ > bestQ {
 			bestQ = candidateQ
-			for k, v := range nodeMapping {
-				bestNodeMapping[k] = v
-			}
-			// Copy superPartition — state.partition is reused across loop iterations.
-			bestSuperPartition = make(map[NodeID]int, len(superPartition))
+			copy(bestNodeMappingSlice, nodeMappingSlice) // O(N) slice copy; no map overhead
+			// Copy superPartition into pooled map — state.partition reused each loop.
+			clear(bestSuperPartition)
 			for k, v := range superPartition {
 				bestSuperPartition[k] = v
 			}
@@ -115,28 +124,38 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 		}
 
 		// Phase 2: compress communities into supernodes.
-		newGraph, superToRep := buildSupergraph(currentGraph, superPartition)
+		prevGraph := currentGraph
+		newGraph, superToRep := buildSupergraph(currentGraph, superPartition, &state.sgScratch)
 
-		// Build reverse map: community ID (in currentGraph) -> new supernode NodeID.
-		// superToRep maps newSuperNode -> representative node in currentGraph.
-		// The community of that representative is: superPartition[rep].
-		commToNewSuper := make(map[int]NodeID, len(superToRep))
-		for newSuper, rep := range superToRep {
+		// Build reverse slice: community ID (in currentGraph) -> new supernode NodeID.
+		// Partition IDs after phase1 are in [0, currentGraph.NodeCount()), so a slice
+		// indexed by comm ID replaces the map — zero-allocation after first pass.
+		curN := currentGraph.NodeCount()
+		if cap(state.commToNewSuperBuf) < curN {
+			state.commToNewSuperBuf = make([]NodeID, curN)
+		} else {
+			state.commToNewSuperBuf = state.commToNewSuperBuf[:curN]
+		}
+		commToNewSuper := state.commToNewSuperBuf
+		for i, rep := range superToRep {
 			comm := superPartition[rep]
-			commToNewSuper[comm] = newSuper
+			commToNewSuper[comm] = NodeID(i)
 		}
 
-		// Update nodeMapping to point original nodes to the new supernodes.
-		// Build into a new map to avoid mutating while reading.
-		newMapping := make(map[NodeID]NodeID, len(nodeMapping))
-		for orig, curSuper := range nodeMapping {
-			comm := superPartition[curSuper]
-			newMapping[orig] = commToNewSuper[comm]
+		// Update nodeMappingSlice in-place: for each original node, follow its current
+		// supernode through superPartition then commToNewSuper to reach the new supernode.
+		for i := range nodeMappingSlice {
+			curSuper := nodeMappingSlice[i]
+			nodeMappingSlice[i] = commToNewSuper[superPartition[curSuper]]
 		}
-		nodeMapping = newMapping
 
+		// Release replaced supergraph back to pool. Original g is caller-owned.
+		if prevGraph != g {
+			releaseGraph(prevGraph)
+		}
 		currentGraph = newGraph
-		csr = buildCSR(currentGraph)
+		buildCSRInto(currentGraph, &state.csrBuf)
+		csr = state.csrBuf // header copy; backing arrays reused from state.csrBuf
 		// If the supergraph has collapsed to a single node, we've fully converged.
 		if currentGraph.NodeCount() <= 1 {
 			break
@@ -144,8 +163,8 @@ func (d *louvainDetector) Detect(g *Graph) (CommunityResult, error) {
 	}
 
 	// --- Reconstruct final partition using best result found ---
-	finalPartition := reconstructPartition(origNodes, bestNodeMapping, bestSuperPartition)
-	finalPartition = normalizePartition(finalPartition)
+	finalPartition := reconstructPartitionFromSlice(origNodes, bestNodeMappingSlice, bestSuperPartition)
+	finalPartition = normalizePartitionWithBufs(finalPartition, &state.normUsedBuf, &state.normRemapBuf)
 	q := ComputeModularityWeighted(g, finalPartition, resolution)
 
 	return CommunityResult{
@@ -167,11 +186,45 @@ func reconstructPartition(origNodes []NodeID, nodeMapping map[NodeID]NodeID, sup
 	return p
 }
 
+// reconstructPartitionInto is like reconstructPartition but writes into dst instead of
+// allocating a new map. dst is cleared before use. Use this with a pooled scratch map
+// to eliminate per-pass map allocations during the Leiden supergraph iteration loop.
+func reconstructPartitionInto(origNodes []NodeID, nodeMapping map[NodeID]NodeID, superPartition map[NodeID]int, dst map[NodeID]int) {
+	clear(dst)
+	for _, orig := range origNodes {
+		superNode := nodeMapping[orig]
+		dst[orig] = superPartition[superNode]
+	}
+}
+
+// reconstructPartitionIntoSlice is like reconstructPartitionInto but uses a slice-indexed
+// nodeMapping (position i → supernode for origNodes[i]) to eliminate per-node map lookups.
+func reconstructPartitionIntoSlice(origNodes []NodeID, nodeMappingSlice []NodeID, superPartition map[NodeID]int, dst map[NodeID]int) {
+	clear(dst)
+	for i, orig := range origNodes {
+		dst[orig] = superPartition[nodeMappingSlice[i]]
+	}
+}
+
+// reconstructPartitionFromSlice allocates a fresh result map using a slice-indexed nodeMapping.
+func reconstructPartitionFromSlice(origNodes []NodeID, nodeMappingSlice []NodeID, superPartition map[NodeID]int) map[NodeID]int {
+	p := make(map[NodeID]int, len(origNodes))
+	for i, orig := range origNodes {
+		p[orig] = superPartition[nodeMappingSlice[i]]
+	}
+	return p
+}
+
 // phase1 performs one full pass of local moves (Phase 1 of Louvain).
 // Iterates over all nodes in shuffled order, moving each to the neighboring
 // community with the highest modularity gain. Returns the number of moves made.
 // csr provides O(1) indexed neighbor lookups; phase1 shuffles dense indices
 // to avoid the idToIdx map lookup in the hot loop.
+//
+// neighborBuf and commStr are flat []float64 slices indexed by community ID
+// (always in [0,n)); neighborSeen is a parallel []bool for O(1) dedup.
+// partitionByIdx mirrors state.partition but is indexed by CSR dense index,
+// eliminating hash lookups from the inner neighbor loop entirely.
 func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64) int {
 	n := len(csr.nodeIDs)
 	// Shuffle dense indices [0..n-1] so we can use idx directly for csr lookups,
@@ -190,42 +243,51 @@ func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64)
 		indices[i], indices[j] = indices[j], indices[i]
 	})
 
+	// Build partitionByIdx: CSR dense-index -> community ID.
+	// One sequential pass over state.partition (O(n) map reads, done once per phase1 call).
+	// All subsequent community lookups in the inner loop use slice accesses only.
+	pbIdx := state.partitionByIdx
+	if len(pbIdx) < n {
+		pbIdx = make([]int, n)
+		state.partitionByIdx = pbIdx
+	}
+	for i, nid := range csr.nodeIDs {
+		pbIdx[i] = state.partition[nid]
+	}
+
 	moves := 0
 	for _, idx := range indices {
-		n := csr.nodeIDs[idx]
-		currentComm := state.partition[n]
+		node := csr.nodeIDs[idx]
+		currentComm := pbIdx[idx]
 		ki := csr.strength(idx)
 
-		// Remove n from its current community (temporarily).
+		// Remove node from its current community (temporarily).
 		state.commStr[currentComm] -= ki
 
-		// Single-pass neighbor accumulation:
-		// Accumulate edge weights from n to each neighbor community into neighborBuf.
-		// Also gather candidate communities (with dedup) into candidateBuf.
-		// neighborDirty tracks keys written so we can reset without clearing the whole map.
+		// Clean up neighborBuf/neighborSeen from the previous node (dirty-list reset).
 		state.candidateBuf = state.candidateBuf[:0]
-		for _, k := range state.neighborDirty {
-			delete(state.neighborBuf, k)
+		for _, c := range state.neighborDirty {
+			state.neighborBuf[c] = 0.0
+			state.neighborSeen[c] = false
 		}
 		state.neighborDirty = state.neighborDirty[:0]
 
-		// Always include currentComm (even if no neighbors there after removal).
-		if _, seen := state.neighborBuf[NodeID(currentComm)]; !seen {
-			state.neighborBuf[NodeID(currentComm)] = 0.0
-			state.neighborDirty = append(state.neighborDirty, NodeID(currentComm))
+		// Always include currentComm (even if no neighbors remain there after removal).
+		if !state.neighborSeen[currentComm] {
+			state.neighborSeen[currentComm] = true
+			state.neighborDirty = append(state.neighborDirty, currentComm)
 			state.candidateBuf = append(state.candidateBuf, currentComm)
 		}
-		for _, e := range csr.neighbors(idx) {
-			nc := state.partition[e.To]
-			key := NodeID(nc)
-			if _, seen := state.neighborBuf[key]; !seen {
-				state.neighborBuf[key] = 0.0
-				state.neighborDirty = append(state.neighborDirty, key)
+		for _, e := range csr.neighborsIdx(idx) {
+			nc := pbIdx[e.ToIdx] // slice access — no map lookup
+			if !state.neighborSeen[nc] {
+				state.neighborSeen[nc] = true
+				state.neighborDirty = append(state.neighborDirty, nc)
 				state.candidateBuf = append(state.candidateBuf, nc)
 			}
-			state.neighborBuf[key] += e.Weight
+			state.neighborBuf[nc] += e.Weight
 		}
-		// neighborBuf[NodeID(comm)] now holds kiIn for community comm.
+		// neighborBuf[comm] now holds kiIn (edge weight from node to community comm).
 
 		candidates := state.candidateBuf
 		// Insertion sort — candidate count is small (bounded by node degree).
@@ -240,7 +302,7 @@ func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64)
 		twoM := 2.0 * m
 		kiOverTwoM := ki / twoM
 
-		kiInCur := state.neighborBuf[NodeID(currentComm)]
+		kiInCur := state.neighborBuf[currentComm]
 		sigTotCur := state.commStr[currentComm]
 		curDQ := kiInCur/m - resolution*(sigTotCur/twoM)*kiOverTwoM
 
@@ -252,7 +314,7 @@ func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64)
 			if comm == currentComm {
 				continue
 			}
-			kiIn := state.neighborBuf[NodeID(comm)]
+			kiIn := state.neighborBuf[comm]
 			sigTot := state.commStr[comm]
 			dq := kiIn/m - resolution*(sigTot/twoM)*kiOverTwoM
 			if gain := dq - curDQ; gain > bestGain {
@@ -262,7 +324,8 @@ func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64)
 		}
 
 		// Assign node to best community and update cached strength.
-		state.partition[n] = bestComm
+		state.partition[node] = bestComm
+		pbIdx[idx] = bestComm // keep idx-cache in sync
 		state.commStr[bestComm] += ki
 		if bestComm != currentComm {
 			moves++
@@ -271,56 +334,113 @@ func phase1(g *Graph, csr *csrGraph, state *louvainState, resolution, m float64)
 	return moves
 }
 
+// edgeKey is the canonical (a ≤ b) pair used to deduplicate inter-community edges
+// in buildSupergraph. Lifted to package scope so supergraphScratch can reference it.
+type edgeKey struct{ a, b NodeID }
+
+// supergraphScratch holds reusable buffers for buildSupergraph.
+// Embedding one of these in louvainState/leidenState eliminates ~12 allocs per call:
+// all temporary slices and the interEdges map are cleared and reused across passes
+// instead of being allocated fresh each time.
+type supergraphScratch struct {
+	occupied    []bool
+	commToSuper []NodeID
+	commList    []int
+	superToRep  []NodeID
+	assigned    []bool
+	selfLoops   []float64
+	interDegree []int
+	interEdges  map[edgeKey]float64
+	interKeys   []edgeKey
+	// edgeBacking and sortedSuperIDs are reused across passes within one Louvain/Leiden run.
+	// Safety: both are overwritten AFTER all reads from the previous supergraph's adjacency/sortedNodes.
+	edgeBacking   []Edge   // backing array for newGraph adjacency slices
+	sortedSuperIDs []NodeID // pre-cached sortedNodes for newGraph (IDs 0..N-1)
+}
+
 // buildSupergraph compresses the current graph by merging each community into a supernode.
 // Returns:
 //   - newGraph: undirected weighted graph with one node per community
-//   - superToRep: maps each new supernode NodeID -> a representative NodeID from g
-func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]NodeID) {
-	// Collect distinct community IDs and sort for deterministic supernode assignment.
-	commSet := make(map[int]struct{})
+//   - superToRep: superToRep[i] = representative NodeID from g for supernode NodeID(i)
+//
+// sc holds reusable scratch buffers; all slices and the interEdges map are cleared and
+// reused across passes to eliminate per-call allocations.
+func buildSupergraph(g *Graph, partition map[NodeID]int, sc *supergraphScratch) (*Graph, []NodeID) {
+	n := len(partition) // partition IDs are in [0, n) by invariant
+
+	// Grow and zero occupied/commToSuper lazily (bool slices are zero on make;
+	// reused slices retain prior values so we zero exactly [0,n) before use).
+	if cap(sc.occupied) < n {
+		sc.occupied = make([]bool, n)
+		sc.commToSuper = make([]NodeID, n)
+	} else {
+		sc.occupied = sc.occupied[:n]
+		clear(sc.occupied)
+		sc.commToSuper = sc.commToSuper[:n]
+	}
+	occupied := sc.occupied
+	commToSuper := sc.commToSuper
+
 	for _, comm := range partition {
-		commSet[comm] = struct{}{}
-	}
-	commList := make([]int, 0, len(commSet))
-	for comm := range commSet {
-		commList = append(commList, comm)
-	}
-	slices.Sort(commList)
-
-	// Assign contiguous supernode IDs in sorted community order.
-	commToSuper := make(map[int]NodeID, len(commList))
-	for i, comm := range commList {
-		commToSuper[comm] = NodeID(i)
+		occupied[comm] = true
 	}
 
-	// Build superToRep: each supernode -> a representative original node.
-	superToRep := make(map[NodeID]NodeID, len(commToSuper))
-	for _, n := range g.Nodes() {
-		comm := partition[n]
-		super := commToSuper[comm]
-		if _, exists := superToRep[super]; !exists {
-			superToRep[super] = n
+	// Build sorted commList and commToSuper (slice, index = comm ID).
+	// Scanning occupied[] in ascending order gives a sorted commList automatically.
+	communityCount := 0
+	sc.commList = sc.commList[:0]
+	for i, occ := range occupied {
+		if occ {
+			commToSuper[i] = NodeID(communityCount)
+			sc.commList = append(sc.commList, i)
+			communityCount++
 		}
 	}
 
-	// Accumulate inter-community edge weights using canonical (min,max) super-node key.
-	// Both directions of each undirected edge are visited; divide accumulated weight by 2
-	// when writing so each edge appears once at the correct weight.
-	// Maps are pre-sized to reduce rehash overhead.
-	type edgeKey struct{ a, b NodeID }
-	interEdges := make(map[edgeKey]float64, g.EdgeCount())
-	// Intra-community edges become self-loops on the supernode.
-	selfLoops := make(map[NodeID]float64, len(commList))
+	// Build superToRep: superToRep[superID] = a representative original node.
+	if cap(sc.superToRep) < communityCount {
+		sc.superToRep = make([]NodeID, communityCount)
+		sc.assigned = make([]bool, communityCount)
+	} else {
+		sc.superToRep = sc.superToRep[:communityCount]
+		sc.assigned = sc.assigned[:communityCount]
+		clear(sc.assigned)
+	}
+	superToRep := sc.superToRep
+	assigned := sc.assigned
+	for _, nd := range g.Nodes() {
+		super := int(commToSuper[partition[nd]])
+		if !assigned[super] {
+			superToRep[super] = nd
+			assigned[super] = true
+		}
+	}
 
-	for _, n := range g.Nodes() {
-		superN := commToSuper[partition[n]]
-		for _, e := range g.Neighbors(n) {
+	// Accumulate inter-community edge weights (map for sparse (a,b) pairs).
+	// Reuse interEdges map: clear retains capacity, avoiding re-alloc of bucket array.
+	if sc.interEdges == nil {
+		sc.interEdges = make(map[edgeKey]float64, g.EdgeCount())
+	} else {
+		clear(sc.interEdges)
+	}
+	interEdges := sc.interEdges
+
+	// Grow selfLoops lazily; zero only the [0, communityCount) prefix.
+	if cap(sc.selfLoops) < communityCount {
+		sc.selfLoops = make([]float64, communityCount)
+	} else {
+		sc.selfLoops = sc.selfLoops[:communityCount]
+		clear(sc.selfLoops)
+	}
+	selfLoops := sc.selfLoops
+
+	for _, nd := range g.Nodes() {
+		superN := commToSuper[partition[nd]]
+		for _, e := range g.Neighbors(nd) {
 			superNeighbor := commToSuper[partition[e.To]]
 			if superN == superNeighbor {
-				// Each undirected intra-community edge appears in adjacency from both endpoints.
 				selfLoops[superN] += e.Weight
 			} else {
-				// Canonicalize key so (a,b) and (b,a) map to the same entry.
 				a, b := superN, superNeighbor
 				if a > b {
 					a, b = b, a
@@ -330,26 +450,65 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 		}
 	}
 
-	newGraph := NewGraph(false)
-
-	// Self-loops: each undirected intra-edge counted twice in adjacency → divide by 2.
-	// Write in sorted supernode order for deterministic adjacency layout.
-	selfLoopNodes := make([]NodeID, 0, len(selfLoops))
-	for super := range selfLoops {
-		selfLoopNodes = append(selfLoopNodes, super)
+	// Pre-compute per-supernode inter-community degree.
+	if cap(sc.interDegree) < communityCount {
+		sc.interDegree = make([]int, communityCount)
+	} else {
+		sc.interDegree = sc.interDegree[:communityCount]
+		clear(sc.interDegree)
 	}
-	slices.Sort(selfLoopNodes)
-	for _, super := range selfLoopNodes {
-		newGraph.AddEdge(super, super, selfLoops[super]/2.0)
-	}
-
-	// Inter-community edges: each undirected edge between communities was counted from both
-	// endpoints (a→b and b→a), so divide accumulated weight by 2.
-	// Write in sorted key order for deterministic adjacency layout.
-	interKeys := make([]edgeKey, 0, len(interEdges))
+	interDegree := sc.interDegree
 	for key := range interEdges {
-		interKeys = append(interKeys, key)
+		interDegree[int(key.a)]++
+		interDegree[int(key.b)]++
 	}
+
+	// Compute total edge slots for the single backing array.
+	totalEdgeCap := 0
+	for i := range communityCount {
+		totalEdgeCap += interDegree[i]
+		if selfLoops[i] > 0 {
+			totalEdgeCap++
+		}
+	}
+	// Reuse edgeBacking across passes: all reads of the previous supergraph's adjacency
+	// are complete before we write here, so overwriting the backing is safe.
+	if cap(sc.edgeBacking) < totalEdgeCap {
+		sc.edgeBacking = make([]Edge, totalEdgeCap, totalEdgeCap+totalEdgeCap/4+1)
+	} else {
+		sc.edgeBacking = sc.edgeBacking[:totalEdgeCap]
+	}
+	edgeBacking := sc.edgeBacking
+
+	newGraph := newGraphSized(false, communityCount)
+	off := 0
+	for i := range communityCount {
+		super := NodeID(i)
+		capNeeded := interDegree[i]
+		if selfLoops[i] > 0 {
+			capNeeded++
+		}
+		newGraph.nodes[super] = 1.0
+		if capNeeded > 0 {
+			newGraph.adjacency[super] = edgeBacking[off : off : off+capNeeded]
+			off += capNeeded
+		}
+	}
+
+	// Self-loops: intra-edge counted twice (both directions) → divide by 2.
+	// Iterate in ascending supernode order for deterministic layout.
+	for i := range communityCount {
+		if selfLoops[i] > 0 {
+			newGraph.AddEdge(NodeID(i), NodeID(i), selfLoops[i]/2.0)
+		}
+	}
+
+	// Inter-community edges: counted from both endpoints → divide by 2.
+	sc.interKeys = sc.interKeys[:0]
+	for key := range interEdges {
+		sc.interKeys = append(sc.interKeys, key)
+	}
+	interKeys := sc.interKeys
 	slices.SortFunc(interKeys, func(x, y edgeKey) int {
 		if x.a != y.a {
 			return int(x.a) - int(y.a)
@@ -360,37 +519,99 @@ func buildSupergraph(g *Graph, partition map[NodeID]int) (*Graph, map[NodeID]Nod
 		newGraph.AddEdge(key.a, key.b, interEdges[key]/2.0)
 	}
 
-	// Ensure all supernodes exist even if isolated (no edges).
-	for _, super := range commToSuper {
-		if _, exists := newGraph.nodes[super]; !exists {
-			newGraph.AddNode(super, 1.0)
-		}
+	// Pre-cache sortedNodes: supergraph NodeIDs are always 0..communityCount-1.
+	// Reuse sc.sortedSuperIDs across passes — safe because all reads of the old
+	// supergraph's sortedNodes finish before this overwrite.
+	if cap(sc.sortedSuperIDs) < communityCount {
+		sc.sortedSuperIDs = make([]NodeID, communityCount, communityCount+communityCount/4+1)
+	} else {
+		sc.sortedSuperIDs = sc.sortedSuperIDs[:communityCount]
 	}
+	for i := range communityCount {
+		sc.sortedSuperIDs[i] = NodeID(i)
+	}
+	newGraph.sortedNodes = sc.sortedSuperIDs
 
 	return newGraph, superToRep
+}
+
+// normalizePartitionWithBufs is like normalizePartition but reuses caller-provided
+// scratch slices, eliminating the two allocs per call after pool warm-up.
+func normalizePartitionWithBufs(partition map[NodeID]int, usedBuf *[]bool, remapBuf *[]int) map[NodeID]int {
+	if len(partition) == 0 {
+		return partition
+	}
+	maxComm := 0
+	for _, c := range partition {
+		if c > maxComm {
+			maxComm = c
+		}
+	}
+	need := maxComm + 1
+	if cap(*usedBuf) >= need {
+		*usedBuf = (*usedBuf)[:need]
+		clear(*usedBuf)
+	} else {
+		*usedBuf = make([]bool, need)
+	}
+	if cap(*remapBuf) >= need {
+		*remapBuf = (*remapBuf)[:need]
+	} else {
+		*remapBuf = make([]int, need)
+	}
+	used := *usedBuf
+	remap := *remapBuf
+	for _, c := range partition {
+		used[c] = true
+	}
+	next := 0
+	for i, u := range used {
+		if u {
+			remap[i] = next
+			next++
+		}
+	}
+	for n := range partition {
+		partition[n] = remap[partition[n]]
+	}
+	return partition
 }
 
 // normalizePartition remaps community IDs to 0-indexed contiguous integers.
 // Assignment order is determined by ascending NodeID for reproducibility.
 func normalizePartition(partition map[NodeID]int) map[NodeID]int {
-	// Sort nodes by NodeID for deterministic remap order.
-	nodes := make([]NodeID, 0, len(partition))
-	for n := range partition {
-		nodes = append(nodes, n)
+	if len(partition) == 0 {
+		return partition
 	}
-	// Use slices.Sort (O(n log n)) — insertion sort is too slow for large graphs.
-	slices.Sort(nodes)
+	// Find max community ID to size the slice-based remap.
+	maxComm := 0
+	for _, c := range partition {
+		if c > maxComm {
+			maxComm = c
+		}
+	}
 
-	remap := make(map[int]int)
+	// Mark which community IDs are occupied in ascending order.
+	used := make([]bool, maxComm+1)
+	for _, c := range partition {
+		used[c] = true
+	}
+
+	// Assign new contiguous IDs in ascending old-comm-ID order (deterministic).
+	// This replaces the original sort-by-NodeID approach but produces an equivalent
+	// 0-indexed contiguous partition (community structure is identical).
+	remap := make([]int, maxComm+1)
 	next := 0
-	normalized := make(map[NodeID]int, len(partition))
-	for _, n := range nodes {
-		c := partition[n]
-		if _, exists := remap[c]; !exists {
-			remap[c] = next
+	for i, u := range used {
+		if u {
+			remap[i] = next
 			next++
 		}
-		normalized[n] = remap[c]
 	}
-	return normalized
+
+	// Apply remap in-place — avoids allocating a separate normalized map.
+	for n := range partition {
+		partition[n] = remap[partition[n]]
+	}
+	return partition
 }

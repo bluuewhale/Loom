@@ -3,8 +3,10 @@ package graph
 import (
 	"errors"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 )
 
 // ErrEmptyGraph is returned when Detect is called on a graph with no nodes.
@@ -400,32 +402,84 @@ type egoNetResult struct {
 	err       error
 }
 
-// runParallelEgoNets dispatches ego-net detection jobs across a bounded worker
-// pool and collects results. jobs must be closed by the caller after all sends.
-// workerCount controls pool size; each worker gets its own cloneDetector(det) copy.
-func runParallelEgoNets(jobs <-chan egoNetJob, det CommunityDetector, workerCount int) []egoNetResult {
-	results := make(chan egoNetResult, workerCount*2)
+// runParallelEgoNets dispatches ego-net detection across workerCount goroutines.
+// An atomic counter replaces the channel-based dispatch: workers increment a
+// shared index to claim the next job, providing dynamic load balancing (important
+// for BA graphs where hub ego-nets are much larger) without channel overhead.
+// Results are written at the same index as the corresponding job.
+func runParallelEgoNets(jobs []egoNetJob, det CommunityDetector, workerCount int) []egoNetResult {
+	if len(jobs) == 0 {
+		return nil
+	}
+	out := make([]egoNetResult, len(jobs))
+	var idx atomic.Int64
 	var wg sync.WaitGroup
-	for i := 0; i < workerCount; i++ {
+	for w := 0; w < workerCount; w++ {
 		wg.Add(1)
 		go func(localDet CommunityDetector) {
 			defer wg.Done()
-			for job := range jobs {
+			for {
+				i := int(idx.Add(1)) - 1
+				if i >= len(jobs) {
+					return
+				}
+				job := jobs[i]
 				res, err := localDet.Detect(job.egoNet)
-				results <- egoNetResult{v: job.v, partition: res.Partition, err: err}
+				releaseGraph(job.egoNet) // safe: Detect is done; no other live reference
+				out[i] = egoNetResult{v: job.v, partition: res.Partition, err: err}
 			}
 		}(cloneDetector(det))
 	}
-	// Close results channel after all workers finish.
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	wg.Wait()
+	return out
+}
 
-	var out []egoNetResult
-	for r := range results {
-		out = append(out, r)
+// runParallelBuildDetect builds ego-nets AND runs detection in parallel across
+// workerCount goroutines. Each worker claims a node index via atomic counter,
+// builds the ego-net with per-goroutine scratch buffers, then runs detection.
+//
+// Per-goroutine graph reuse: each goroutine owns one *Graph cleared in-place
+// between ego nets, eliminating pool.Get/Put overhead and pool.New allocs per
+// ego-net. edgeBacking and sortedIDsBuf grow lazily within each goroutine.
+// partition==nil in a result signals an isolated node (empty ego-net, no error).
+func runParallelBuildDetect(nodes []NodeID, g *Graph, det CommunityDetector, workerCount int) []egoNetResult {
+	if len(nodes) == 0 {
+		return nil
 	}
+	out := make([]egoNetResult, len(nodes))
+	var idx atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < workerCount; w++ {
+		wg.Add(1)
+		go func(localDet CommunityDetector) {
+			defer wg.Done()
+			var scratch []NodeID
+			var edgeBacking []Edge
+			var sortedIDsBuf []NodeID
+			var degreesBuf []int
+			for {
+				i := int(idx.Add(1)) - 1
+				if i >= len(nodes) {
+					return
+				}
+				v := nodes[i]
+				scratch = scratch[:0]
+				for _, e := range g.Neighbors(v) {
+					scratch = append(scratch, e.To)
+				}
+				egoNet := subgraphWithScratch(g, scratch, &edgeBacking, &sortedIDsBuf, &degreesBuf)
+				if egoNet.NodeCount() == 0 {
+					releaseGraph(egoNet)
+					out[i] = egoNetResult{v: v} // partition==nil signals isolated
+					continue
+				}
+				res, err := localDet.Detect(egoNet)
+				releaseGraph(egoNet)
+				out[i] = egoNetResult{v: v, partition: res.Partition, err: err}
+			}
+		}(cloneDetector(det))
+	}
+	wg.Wait()
 	return out
 }
 
@@ -439,6 +493,18 @@ func buildEgoNet(g *Graph, v NodeID) *Graph {
 		nodeIDs = append(nodeIDs, e.To)
 	}
 	return g.Subgraph(nodeIDs)
+}
+
+// buildEgoNetWithScratch is like buildEgoNet but reuses scratch to avoid allocating
+// the intermediate nodeIDs slice. The scratch slice is owned by the caller and must
+// not be used concurrently. Used by buildPersonaGraph to eliminate one alloc per node.
+func buildEgoNetWithScratch(g *Graph, v NodeID, scratch *[]NodeID) *Graph {
+	neighbors := g.Neighbors(v)
+	*scratch = (*scratch)[:0]
+	for _, e := range neighbors {
+		*scratch = append(*scratch, e.To)
+	}
+	return g.Subgraph(*scratch)
 }
 
 // buildPersonaGraph constructs the persona graph from g using the given local
@@ -461,10 +527,13 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 	}
 	nextPersona := maxNodeID + 1
 
-	personaOf := make(map[NodeID]map[int]NodeID)
-	inverseMap := make(map[NodeID]NodeID)
+	n := len(g.Nodes())
+	personaOf := make(map[NodeID]map[int]NodeID, n)
+	// inverseMap persona count ≈ nodes × avg-communities; len(nodes) is a lower bound
+	// that avoids repeated rehashing in the common case (≤1 community per node).
+	inverseMap := make(map[NodeID]NodeID, n)
 	// partitions[v] holds the ego-net partition for v: neighbor -> community ID in G_v
-	partitions := make(map[NodeID]map[NodeID]int)
+	partitions := make(map[NodeID]map[NodeID]int, n)
 
 	// Step 2: build ego-nets and detect local communities in parallel.
 	// Isolated nodes (no neighbors) are handled inline without goroutine overhead.
@@ -478,38 +547,10 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 		workerCount = 1
 	}
 
-	jobCh := make(chan egoNetJob, workerCount*2)
-
-	// Collect isolated nodes inline; store non-empty ego-nets for dispatch.
-	// Ego-nets are built once here — not rebuilt in the goroutine.
-	type nodeEgo struct {
-		v      NodeID
-		egoNet *Graph
-	}
-	var nonEmptyJobs []nodeEgo
-	for _, v := range nodes {
-		personaOf[v] = make(map[int]NodeID)
-		egoNet := buildEgoNet(g, v)
-		if egoNet.NodeCount() == 0 {
-			// Isolated node: single persona, community 0, no detection needed.
-			personaOf[v][0] = nextPersona
-			inverseMap[nextPersona] = v
-			nextPersona++
-			partitions[v] = make(map[NodeID]int)
-			continue
-		}
-		nonEmptyJobs = append(nonEmptyJobs, nodeEgo{v, egoNet})
-	}
-
-	// Dispatch stored ego-nets to the worker pool (no rebuild).
-	go func() {
-		for _, job := range nonEmptyJobs {
-			jobCh <- egoNetJob{v: job.v, egoNet: job.egoNet}
-		}
-		close(jobCh)
-	}()
-
-	results := runParallelEgoNets(jobCh, localDetector, workerCount)
+	// Build ego-nets AND detect in parallel: each worker claims a node index,
+	// builds the ego-net with a per-goroutine scratch slice, runs detection, and
+	// releases the graph — eliminating the sequential main-goroutine build phase.
+	results := runParallelBuildDetect(nodes, g, localDetector, workerCount)
 
 	// Check for errors first.
 	for _, r := range results {
@@ -518,69 +559,72 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 		}
 	}
 
-	// Assign persona nodes for non-empty ego-net results.
+	// Assign persona nodes for all results (isolated and non-empty alike).
+	// commIDsBuf is a reused scratch slice for sort+dedup — avoids per-node map allocation.
+	var commIDsBuf []int
 	for _, r := range results {
 		v := r.v
+		personaOf[v] = make(map[int]NodeID, 2) // most nodes have 1–2 communities
+		if r.partition == nil {
+			// Isolated node: single persona, community 0, no detection needed.
+			personaOf[v][0] = nextPersona
+			inverseMap[nextPersona] = v
+			nextPersona++
+			partitions[v] = make(map[NodeID]int)
+			continue
+		}
 		partitions[v] = r.partition
 
-		commsSeen := make(map[int]struct{})
+		commIDsBuf = commIDsBuf[:0]
 		for _, commID := range r.partition {
-			commsSeen[commID] = struct{}{}
+			commIDsBuf = append(commIDsBuf, commID)
 		}
-		for commID := range commsSeen {
+		slices.Sort(commIDsBuf)
+		prev := -1
+		for _, commID := range commIDsBuf {
+			if commID == prev {
+				continue
+			}
+			prev = commID
 			personaOf[v][commID] = nextPersona
 			inverseMap[nextPersona] = v
 			nextPersona++
 		}
 	}
 
-	// Step 4-6: build persona graph and wire edges
-	personaGraph := NewGraph(false)
-
-	// Add all persona nodes
-	for personaID := range inverseMap {
-		personaGraph.AddNode(personaID, 1.0)
+	// Step 4-6: build persona graph with pre-sized adjacency to avoid append growth allocs.
+	//
+	// Two-pass approach (mirrors buildSupergraph's single backing-array strategy):
+	//   Pass 1: resolve each original edge to (personaU, personaV, weight) and count degrees.
+	//   Pass 2: pre-allocate adjacency from one backing array, then wire edges directly.
+	type pEdge struct {
+		u, v NodeID
+		w    float64
 	}
-
-	// Wire edges with dedup using canonical (lo, hi) key
-	seen := make(map[[2]NodeID]struct{})
+	pEdges := make([]pEdge, 0, g.EdgeCount())
+	// PersonaIDs are assigned sequentially from basePersona = maxNodeID+1 up to nextPersona-1.
+	// Use a []int indexed by (personaID - basePersona) instead of map[NodeID]int to avoid
+	// a large map allocation for every buildPersonaGraph call.
+	basePersona := maxNodeID + 1
+	personaDegree := make([]int, int(nextPersona-basePersona))
 	for _, u := range g.Nodes() {
 		for _, e := range g.Neighbors(u) {
 			v := e.To
-
-			// Canonical dedup: process each undirected edge once
-			lo, hi := u, v
-			if lo > hi {
-				lo, hi = hi, lo
+			if v < u {
+				continue // canonical direction: process each undirected edge once
 			}
-			key := [2]NodeID{lo, hi}
-			if _, already := seen[key]; already {
-				continue
-			}
-			seen[key] = struct{}{}
-
-			// Determine which persona of u handles this edge:
-			// u's persona is determined by the community of v in G_u (u's ego-net).
-			// If v is absent from G_u's partition (e.g. v not in G_u), fall back to
-			// community 0 — u has a single persona for isolated neighbors.
 			commOfVinGu := 0
 			if partU, hasU := partitions[u]; hasU {
 				if cv, vInU := partU[v]; vInU {
 					commOfVinGu = cv
 				}
 			}
-
-			// Determine which persona of v handles this edge:
-			// v's persona is determined by the community of u in G_v (v's ego-net).
-			// Same fallback for u absent from G_v's partition.
 			commOfUinGv := 0
 			if partV, hasV := partitions[v]; hasV {
 				if cu, uInV := partV[u]; uInV {
 					commOfUinGv = cu
 				}
 			}
-
-			// Look up persona nodes
 			personaU, uHasComm := personaOf[u][commOfVinGu]
 			if !uHasComm {
 				continue
@@ -589,8 +633,54 @@ func buildPersonaGraph(g *Graph, localDetector CommunityDetector) (*Graph, map[N
 			if !vHasComm {
 				continue
 			}
+			pEdges = append(pEdges, pEdge{personaU, personaV, e.Weight})
+			personaDegree[personaU-basePersona]++
+			if personaU != personaV {
+				personaDegree[personaV-basePersona]++
+			}
+		}
+	}
 
-			personaGraph.AddEdge(personaU, personaV, e.Weight)
+	// Pre-allocate adjacency backing: one []Edge slice covers all adjacency lists.
+	// For undirected, each edge stores two slots (one per endpoint).
+	totalSlots := 0
+	for _, d := range personaDegree {
+		totalSlots += d
+	}
+	edgeBacking := make([]Edge, totalSlots)
+
+	// Persona graph is long-lived (returned to caller) — allocate directly pre-sized
+	// rather than acquiring from graphPool, to avoid bucket-growth on a fresh pool entry
+	// and to avoid inadvertently releasing a long-lived graph back to the pool.
+	numPersonas := int(nextPersona - basePersona)
+	personaGraph := &Graph{
+		directed:  false,
+		nodes:     make(map[NodeID]float64, numPersonas),
+		adjacency: make(map[NodeID][]Edge, numPersonas),
+	}
+	// PersonaIDs are assigned sequentially from basePersona to nextPersona-1.
+	// Iterate sequentially to avoid maps.(*Iter).Next overhead and pre-set sortedNodes
+	// (eliminating the Nodes() map-iteration + sort on the first global-detector call).
+	sortedPersonas := make([]NodeID, numPersonas)
+	off := 0
+	for idx := range numPersonas {
+		personaID := NodeID(int(basePersona) + idx)
+		sortedPersonas[idx] = personaID
+		personaGraph.nodes[personaID] = 1.0
+		d := personaDegree[idx]
+		if d > 0 {
+			personaGraph.adjacency[personaID] = edgeBacking[off : off : off+d]
+			off += d
+		}
+	}
+	personaGraph.sortedNodes = sortedPersonas
+
+	// Wire edges directly into pre-allocated adjacency slices.
+	for _, pe := range pEdges {
+		personaGraph.adjacency[pe.u] = append(personaGraph.adjacency[pe.u], Edge{To: pe.v, Weight: pe.w})
+		personaGraph.totalWeight += pe.w
+		if pe.u != pe.v {
+			personaGraph.adjacency[pe.v] = append(personaGraph.adjacency[pe.v], Edge{To: pe.u, Weight: pe.w})
 		}
 	}
 
@@ -748,11 +838,7 @@ func buildPersonaGraphIncremental(
 
 	// Separate isolated from non-empty affected nodes.
 	// Build ego-nets once; reuse in goroutine dispatch (no double build).
-	type affectedEgo struct {
-		v      NodeID
-		egoNet *Graph
-	}
-	var nonEmptyAffected []affectedEgo
+	var nonEmptyAffected []egoNetJob
 	for v := range affected {
 		egoNet := buildEgoNet(g, v)
 		if egoNet.NodeCount() == 0 {
@@ -762,19 +848,11 @@ func buildPersonaGraphIncremental(
 			partitions[v] = make(map[NodeID]int)
 			continue
 		}
-		nonEmptyAffected = append(nonEmptyAffected, affectedEgo{v, egoNet})
+		nonEmptyAffected = append(nonEmptyAffected, egoNetJob{v: v, egoNet: egoNet})
 	}
 
 	if len(nonEmptyAffected) > 0 {
-		jobCh := make(chan egoNetJob, workerCount*2)
-		go func() {
-			for _, job := range nonEmptyAffected {
-				jobCh <- egoNetJob{v: job.v, egoNet: job.egoNet}
-			}
-			close(jobCh)
-		}()
-
-		results := runParallelEgoNets(jobCh, localDetector, workerCount)
+		results := runParallelEgoNets(nonEmptyAffected, localDetector, workerCount)
 
 		for _, r := range results {
 			if r.err != nil {
@@ -782,15 +860,22 @@ func buildPersonaGraphIncremental(
 			}
 		}
 
+		var commIDsBuf2 []int
 		for _, r := range results {
 			v := r.v
 			partitions[v] = r.partition
 
-			commsSeen := make(map[int]struct{})
+			commIDsBuf2 = commIDsBuf2[:0]
 			for _, commID := range r.partition {
-				commsSeen[commID] = struct{}{}
+				commIDsBuf2 = append(commIDsBuf2, commID)
 			}
-			for commID := range commsSeen {
+			slices.Sort(commIDsBuf2)
+			prev := -1
+			for _, commID := range commIDsBuf2 {
+				if commID == prev {
+					continue
+				}
+				prev = commID
 				personaOf[v][commID] = nextPersona
 				inverseMap[nextPersona] = v
 				nextPersona++
@@ -841,20 +926,15 @@ func buildPersonaGraphIncremental(
 		personaGraph.RemoveEdgesFor(affectedPersonas)
 
 		// Re-wire edges where at least one original endpoint is affected.
-		// Only iterate edges incident to affected original nodes.
-		seen := make(map[[2]NodeID]struct{})
+		// Dedup: for edges where both endpoints are in affected, only process from the
+		// smaller-ID side (u < v), avoiding the seen-map allocation.
 		for u := range affected {
 			for _, e := range g.Neighbors(u) {
 				v := e.To
-				lo, hi := u, v
-				if lo > hi {
-					lo, hi = hi, lo
-				}
-				key := [2]NodeID{lo, hi}
-				if _, already := seen[key]; already {
+				// Skip if both endpoints are affected and v < u (already processed from v's side).
+				if _, vAffected := affected[v]; vAffected && v < u {
 					continue
 				}
-				seen[key] = struct{}{}
 
 				commOfVinGu := 0
 				if partU, hasU := partitions[u]; hasU {
@@ -888,19 +968,12 @@ func buildPersonaGraphIncremental(
 			personaGraph.AddNode(personaID, 1.0)
 		}
 
-		seen := make(map[[2]NodeID]struct{})
 		for _, u := range g.Nodes() {
 			for _, e := range g.Neighbors(u) {
 				v := e.To
-				lo, hi := u, v
-				if lo > hi {
-					lo, hi = hi, lo
+				if v < u {
+					continue // process each undirected edge once (u ≤ v canonical)
 				}
-				key := [2]NodeID{lo, hi}
-				if _, already := seen[key]; already {
-					continue
-				}
-				seen[key] = struct{}{}
 
 				commOfVinGu := 0
 				if partU, hasU := partitions[u]; hasU {
@@ -942,22 +1015,31 @@ func compactCommunities(
 ) ([][]NodeID, map[NodeID][]int) {
 	nodeCommunities := mapPersonasToOriginal(globalPartition, inverseMap)
 
-	// Deduplicate community IDs per node.
+	// Deduplicate community IDs per node using sort+compact (zero allocations per node).
 	// mapPersonasToOriginal can emit duplicate IDs when multiple personas of the
 	// same original node land in the same global community.
 	for node, comms := range nodeCommunities {
-		seen := make(map[int]struct{}, len(comms))
-		unique := make([]int, 0, len(comms))
-		for _, c := range comms {
-			if _, ok := seen[c]; !ok {
-				seen[c] = struct{}{}
-				unique = append(unique, c)
+		if len(comms) <= 1 {
+			continue
+		}
+		slices.Sort(comms)
+		out := comms[:1]
+		for _, c := range comms[1:] {
+			if c != out[len(out)-1] {
+				out = append(out, c)
 			}
 		}
-		nodeCommunities[node] = unique
+		nodeCommunities[node] = out
 	}
 
-	// Build Communities [][]NodeID: find max ID, populate, then compact.
+	// Build Communities [][]NodeID using counting-sort strategy:
+	//   1. Count members per community with a flat []int (8x smaller than [][]NodeID).
+	//   2. Pre-allocate one contiguous NodeID backing array for all community slices.
+	//   3. Populate + remap nodeCommunities in one combined pass.
+	//
+	// This replaces the previous approach which allocated a [][]NodeID of size
+	// maxComm+1 (up to ~80K elements for sparse persona graphs) and grew `filtered`
+	// via repeated append, causing large intermediate allocations.
 	maxComm := -1
 	for _, comms := range nodeCommunities {
 		for _, c := range comms {
@@ -966,26 +1048,53 @@ func compactCommunities(
 			}
 		}
 	}
-	communities := make([][]NodeID, maxComm+1)
-	for node, comms := range nodeCommunities {
+	if maxComm < 0 {
+		return nil, nodeCommunities
+	}
+
+	// Pass 1: count members per community.
+	counts := make([]int, maxComm+1)
+	for _, comms := range nodeCommunities {
 		for _, c := range comms {
-			communities[c] = append(communities[c], node)
+			counts[c]++
 		}
 	}
-	var filtered [][]NodeID
-	commRemap := make(map[int]int)
-	for i, members := range communities {
-		if len(members) > 0 {
+
+	// Compute how many non-empty communities exist and total member slots needed.
+	numComms := 0
+	totalMembers := 0
+	for _, cnt := range counts {
+		if cnt > 0 {
+			numComms++
+			totalMembers += cnt
+		}
+	}
+
+	// commRemap[c] = index in filtered for community c (-1 = empty).
+	commRemap := make([]int, maxComm+1)
+	for i := range commRemap {
+		commRemap[i] = -1
+	}
+
+	// Single backing array covers all community member slices — one allocation total.
+	memberBacking := make([]NodeID, totalMembers)
+	filtered := make([][]NodeID, 0, numComms)
+	off := 0
+	for i, cnt := range counts {
+		if cnt > 0 {
 			commRemap[i] = len(filtered)
-			filtered = append(filtered, members)
+			filtered = append(filtered, memberBacking[off:off:off+cnt])
+			off += cnt
 		}
 	}
+
+	// Pass 2: populate filtered + remap nodeCommunities IDs in-place (combined).
 	for node, comms := range nodeCommunities {
-		remapped := make([]int, len(comms))
 		for j, c := range comms {
-			remapped[j] = commRemap[c]
+			idx := commRemap[c]
+			filtered[idx] = append(filtered[idx], node)
+			comms[j] = idx
 		}
-		nodeCommunities[node] = remapped
 	}
 	return filtered, nodeCommunities
 }
@@ -997,7 +1106,29 @@ func mapPersonasToOriginal(
 	globalPartition map[NodeID]int,
 	inverseMap map[NodeID]NodeID,
 ) map[NodeID][]int {
-	result := make(map[NodeID][]int)
+	// Pass 1: count personas per original node.
+	counts := make(map[NodeID]int, len(inverseMap))
+	for personaID := range globalPartition {
+		if origNode, ok := inverseMap[personaID]; ok {
+			counts[origNode]++
+		}
+	}
+
+	// Single backing array for all result slices — eliminates N per-node make calls.
+	// Each original node's community slice is a view into this array.
+	total := 0
+	for _, cnt := range counts {
+		total += cnt
+	}
+	backing := make([]int, total)
+	result := make(map[NodeID][]int, len(counts))
+	off := 0
+	for origNode, cnt := range counts {
+		result[origNode] = backing[off : off : off+cnt]
+		off += cnt
+	}
+
+	// Pass 2: fill community IDs into pre-sized slices.
 	for personaID, commID := range globalPartition {
 		origNode, ok := inverseMap[personaID]
 		if !ok {
